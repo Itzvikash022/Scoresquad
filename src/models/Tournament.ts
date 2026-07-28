@@ -6,6 +6,7 @@ export interface ITournament {
   date: Date;
   gamesCount: number;
   format: "custom" | "action";
+  winPoints: number; // Extra points awarded to the winner of each match
   games: string[]; // References to Games played (IDs)
   isTeamMode: boolean;
   participants: string[]; // Player IDs or Team IDs
@@ -30,6 +31,7 @@ const TournamentSchema: Schema<ITournament> = new Schema(
       enum: ["custom", "action"],
       default: "custom",
     },
+    winPoints: { type: Number, default: 10 },
     games: [{ type: String, ref: "Game" }],
     isTeamMode: { type: Boolean, default: false },
     participants: { type: [String], default: [] },

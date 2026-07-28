@@ -25,6 +25,7 @@ export default function TournamentsPage() {
   const [tournyName, setTournyName] = useState("");
   const [gamesCount, setGamesCount] = useState(5);
   const [format, setFormat] = useState<"custom" | "action">("custom");
+  const [winPoints, setWinPoints] = useState(10);
   const [isTeamMode, setIsTeamMode] = useState(false);
   const [selectedGameIds, setSelectedGameIds] = useState<string[]>([]);
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]); // Player or Team IDs
@@ -62,6 +63,7 @@ export default function TournamentsPage() {
     setTournyName(`Championship - ${dateStr}`);
     setGamesCount(5);
     setFormat("custom");
+    setWinPoints(10);
     setIsTeamMode(false);
     setSelectedGameIds([]);
     setSelectedParticipantIds([]);
@@ -152,6 +154,7 @@ export default function TournamentsPage() {
         tournyName.trim(),
         gamesCount,
         format,
+        winPoints,
         selectedGameIds,
         selectedParticipantIds,
         isTeamMode
@@ -233,6 +236,16 @@ export default function TournamentsPage() {
       return;
     }
 
+    // Apply Win Bonus Points
+    const bonus = activeTournament.winPoints || 0;
+    let finalS1 = s1;
+    let finalS2 = s2;
+    if (s1 > s2) {
+      finalS1 = s1 + bonus;
+    } else if (s2 > s1) {
+      finalS2 = s2 + bonus;
+    }
+
     const updated = { ...activeTournament };
     const fixturesList = updated.bracket?.fixtures || [];
     const fixIdx = fixturesList.findIndex((f: any) => f.id === activeFixtureId);
@@ -243,8 +256,8 @@ export default function TournamentsPage() {
     
     // Save to local tournament fixture bracket state
     fix.games[activeGameIdx] = {
-      score1: s1,
-      score2: s2,
+      score1: finalS1,
+      score2: finalS2,
       isPlayed: true,
       gameId: logGameId,
     };
@@ -270,10 +283,10 @@ export default function TournamentsPage() {
         players: playersArr,
         teams: teamsArr,
         scores: {
-          [fix.p1]: s1,
-          [fix.p2]: s2,
+          [fix.p1]: finalS1,
+          [fix.p2]: finalS2,
         },
-        winners: s1 > s2 ? [fix.p1] : s2 > s1 ? [fix.p2] : [fix.p1, fix.p2],
+        winners: finalS1 > finalS2 ? [fix.p1] : finalS2 > finalS1 ? [fix.p2] : [fix.p1, fix.p2],
         isTournamentMatch: true,
         tournament: updated._id,
       });
@@ -602,6 +615,20 @@ export default function TournamentsPage() {
                 required
               />
               <span className="form-help-lbl">How many games are played in each matchup series.</span>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label-el">Win Bonus Points</label>
+              <input
+                type="number"
+                value={winPoints}
+                onChange={(e) => setWinPoints(Math.max(0, parseInt(e.target.value) || 0))}
+                className="form-input-el"
+                min={0}
+                max={1000}
+                required
+              />
+              <span className="form-help-lbl">Extra points awarded to the winner of each game, added directly to their score.</span>
             </div>
 
             <div className="form-group">

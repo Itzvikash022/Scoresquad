@@ -67,6 +67,7 @@ export interface ClientTournament {
   date: string;
   gamesCount: number;
   format: "custom" | "action";
+  winPoints: number;
   games: string[]; // Game IDs
   isTeamMode: boolean;
   participants: string[]; // Player or Team IDs
@@ -579,7 +580,7 @@ class DataService {
     return tournament;
   }
 
-  public createTournament(name: string, gamesCount: number, format: "custom" | "action", gameIds: string[], participantIds: string[], isTeamMode: boolean): ClientTournament {
+  public createTournament(name: string, gamesCount: number, format: "custom" | "action", winPoints: number, gameIds: string[], participantIds: string[], isTeamMode: boolean): ClientTournament {
     const id = generateId();
     
     // Auto-deactivate others
@@ -615,6 +616,7 @@ class DataService {
       date: new Date().toISOString(),
       gamesCount,
       format,
+      winPoints,
       games: gameIds,
       isTeamMode,
       participants: participantIds,
