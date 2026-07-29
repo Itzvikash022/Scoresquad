@@ -229,7 +229,6 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({
 interface GameCardProps {
   name: string;
   icon: string; // Emoji
-  modes: string[];
   totalMatches: number;
   onClick?: () => void;
 }
@@ -237,7 +236,6 @@ interface GameCardProps {
 export const GameCard: React.FC<GameCardProps> = ({
   name,
   icon,
-  modes,
   totalMatches,
   onClick,
 }) => {
@@ -254,13 +252,7 @@ export const GameCard: React.FC<GameCardProps> = ({
             </span>
           </div>
         </div>
-        <div className="game-modes">
-          {modes.map((mode) => (
-            <span key={mode} className="mode-tag">
-              {mode}
-            </span>
-          ))}
-        </div>
+
       </div>
       <style jsx>{`
         .game-card-content {

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ChevronLeft, Check, Users, Shield, Plus, Minus, Shuffle, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronLeft, Check, Users, Shield, Plus, Minus, Shuffle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/Buttons";
 import { Card } from "@/components/ui/Cards";
 import { useToast } from "@/components/ui/Toast";
@@ -21,7 +21,7 @@ export default function RecordMatchPage() {
   const [step, setStep] = useState(1);
 
   // Selected parameters
-  const [selectedGame, setSelectedGame] = useState<ClientGame | null>(null);
+  const [selectedGames, setSelectedGames] = useState<ClientGame[]>([]);
   const [matchMode, setMatchMode] = useState<"Solo" | "Free For All" | "Team Match">("Solo");
   
   // Players selection
@@ -31,8 +31,8 @@ export default function RecordMatchPage() {
   const [teamAPlayers, setTeamAPlayers] = useState<string[]>([]);
   const [teamBPlayers, setTeamBPlayers] = useState<string[]>([]);
 
-  // Scores state: Key is Player ID or Team key/name
-  const [scores, setScores] = useState<Record<string, number>>({});
+  // Scores state: keyed by game ID then Player/Team ID
+  const [gameScores, setGameScores] = useState<Record<string, Record<string, number>>>({});
 
   useEffect(() => {
     setPlayers(dataService.getPlayers());
@@ -40,13 +40,14 @@ export default function RecordMatchPage() {
     setActiveSession(dataService.getActiveSession());
   }, []);
 
-  const handleSelectGame = (game: ClientGame) => {
-    setSelectedGame(game);
-    // Set default mode
-    if (game.supportedModes.length > 0) {
-      setMatchMode(game.supportedModes[0]);
-    }
-    setStep(2);
+  const toggleGameSelection = (game: ClientGame) => {
+    setSelectedGames((prev) => {
+      const isAlreadySelected = prev.some((selectedGame) => selectedGame._id === game._id);
+      if (isAlreadySelected) {
+        return prev.filter((selectedGame) => selectedGame._id !== game._id);
+      }
+      return [...prev, game];
+    });
   };
 
   const handleSelectMode = (mode: "Solo" | "Free For All" | "Team Match") => {
@@ -108,61 +109,28 @@ export default function RecordMatchPage() {
     showToast("Teams swapped!", "success");
   };
 
-  const handleProceedToScores = () => {
+  const createInitialScores = () => {
+    const initialScores: Record<string, number> = {};
+
     if (matchMode === "Team Match") {
-      if (teamAPlayers.length === 0 || teamBPlayers.length === 0) {
-        showToast("Both teams must have at least 1 player", "error");
-        return;
-      }
-      // Initialize scores for Team A and Team B
-      const initialScores: Record<string, number> = {};
-      
-      // Get/create team combinations to obtain unique IDs
       const teamA = dataService.getOrCreateTeam(teamAPlayers);
       const teamB = dataService.getOrCreateTeam(teamBPlayers);
-      
       initialScores[teamA._id] = 0;
       initialScores[teamB._id] = 0;
-      setScores(initialScores);
     } else {
-      if (selectedPlayerIds.length < 2) {
-        showToast("Select at least 2 players", "error");
-        return;
-      }
-      const initialScores: Record<string, number> = {};
       selectedPlayerIds.forEach((pId) => {
         initialScores[pId] = 0;
       });
-      setScores(initialScores);
     }
-    setStep(4);
+
+    return initialScores;
   };
 
-  // Dial score controls (+1, +5, -1)
-  const adjustScore = (id: string, amount: number) => {
-    setScores((prev) => {
-      const current = prev[id] || 0;
-      const next = Math.max(0, current + amount); // No negative scores
-      return { ...prev, [id]: next };
-    });
-  };
-
-  const handleScoreInput = (id: string, val: string) => {
-    const parsed = parseInt(val, 10);
-    setScores((prev) => ({
-      ...prev,
-      [id]: isNaN(parsed) ? 0 : parsed,
-    }));
-  };
-
-  const handleSaveMatch = () => {
-    if (!selectedGame) return;
-
-    // Check winners
+  const getWinnerIds = (scoreMap: Record<string, number>) => {
     let maxScore = -1;
     let winners: string[] = [];
 
-    Object.entries(scores).forEach(([id, val]) => {
+    Object.entries(scoreMap).forEach(([id, val]) => {
       if (val > maxScore) {
         maxScore = val;
         winners = [id];
@@ -171,41 +139,134 @@ export default function RecordMatchPage() {
       }
     });
 
-    if (maxScore === 0 && winners.length > 0) {
-      if (!window.confirm("All scores are 0. Save match anyway?")) {
+    return winners;
+  };
+
+  const handleProceedToScores = () => {
+    if (selectedGames.length === 0) {
+      showToast("Select at least 1 game", "error");
+      return;
+    }
+
+    if (matchMode === "Team Match") {
+      if (teamAPlayers.length === 0 || teamBPlayers.length === 0) {
+        showToast("Both teams must have at least 1 player", "error");
         return;
       }
+    } else if (selectedPlayerIds.length < 2) {
+      showToast("Select at least 2 players", "error");
+      return;
+    }
+
+    const initialGameScores: Record<string, Record<string, number>> = {};
+    selectedGames.forEach((game) => {
+      initialGameScores[game._id] = createInitialScores();
+    });
+
+    setGameScores(initialGameScores);
+    setStep(4);
+  };
+
+  const getTeamDisplayInfo = (memberIds: string[]) => {
+    const sortedIds = [...memberIds].sort();
+    const key = sortedIds.join(",");
+    const existingTeam = dataService.getTeams().find((team) => team.key === key);
+
+    if (existingTeam) {
+      return existingTeam;
+    }
+
+    const memberNames = sortedIds
+      .map((id) => players.find((player) => player._id === id)?.name || "Player")
+      .join(" & ");
+
+    return {
+      _id: key,
+      name: memberNames || "Team",
+      members: sortedIds,
+    };
+  };
+
+  // Dial score controls (+1, +5, -1)
+  const adjustScore = (gameId: string, id: string, amount: number) => {
+    setGameScores((prev) => {
+      const currentGameScores = prev[gameId] || {};
+      const current = currentGameScores[id] || 0;
+      const next = Math.max(0, current + amount); // No negative scores
+      return {
+        ...prev,
+        [gameId]: {
+          ...currentGameScores,
+          [id]: next,
+        },
+      };
+    });
+  };
+
+  const handleScoreInput = (gameId: string, id: string, val: string) => {
+    const parsed = parseInt(val, 10);
+    setGameScores((prev) => ({
+      ...prev,
+      [gameId]: {
+        ...(prev[gameId] || {}),
+        [id]: isNaN(parsed) ? 0 : parsed,
+      },
+    }));
+  };
+
+  const handleSaveMatch = () => {
+    if (selectedGames.length === 0) return;
+
+    const matchesToSave = selectedGames.map((game) => {
+      const scoreMap = gameScores[game._id] || createInitialScores();
+      const winners = getWinnerIds(scoreMap);
+      const hasZeroScores = Object.values(scoreMap).every((value) => value === 0) && Object.keys(scoreMap).length > 0;
+
+      return {
+        game,
+        scoreMap,
+        winners,
+        hasZeroScores,
+      };
+    });
+
+    const shouldConfirmZeroScores = matchesToSave.some((match) => match.hasZeroScores);
+
+    if (shouldConfirmZeroScores && !window.confirm("Some scores are 0. Save matches anyway?")) {
+      return;
     }
 
     try {
-      if (matchMode === "Team Match") {
-        const teamA = dataService.getOrCreateTeam(teamAPlayers);
-        const teamB = dataService.getOrCreateTeam(teamBPlayers);
+      const teamA = matchMode === "Team Match" ? dataService.getOrCreateTeam(teamAPlayers) : null;
+      const teamB = matchMode === "Team Match" ? dataService.getOrCreateTeam(teamBPlayers) : null;
 
-        dataService.saveMatch({
-          session: activeSession?._id,
-          game: selectedGame._id,
-          matchType: "Team Match",
-          players: selectedPlayerIds,
-          teams: [teamA._id, teamB._id],
-          scores,
-          winners,
-          isTournamentMatch: false,
-        });
-      } else {
-        dataService.saveMatch({
-          session: activeSession?._id,
-          game: selectedGame._id,
-          matchType: matchMode,
-          players: selectedPlayerIds,
-          teams: [],
-          scores,
-          winners,
-          isTournamentMatch: false,
-        });
-      }
+      matchesToSave.forEach(({ game, scoreMap, winners }) => {
+        if (matchMode === "Team Match" && teamA && teamB) {
+          dataService.saveMatch({
+            session: activeSession?._id,
+            game: game._id,
+            matchType: "Team Match",
+            players: selectedPlayerIds,
+            teams: [teamA._id, teamB._id],
+            scores: scoreMap,
+            winners,
+            isTournamentMatch: false,
+          });
+        } else {
+          dataService.saveMatch({
+            session: activeSession?._id,
+            game: game._id,
+            matchType: matchMode,
+            players: selectedPlayerIds,
+            teams: [],
+            scores: scoreMap,
+            winners,
+            isTournamentMatch: false,
+          });
+        }
+      });
 
-      showToast("Match recorded successfully!", "success");
+      showToast(`Recorded ${matchesToSave.length} match${matchesToSave.length === 1 ? "" : "es"} successfully!`, "success");
       router.push(activeSession ? "/sessions" : "/");
     } catch (err) {
       showToast("Failed to save match data", "error");
@@ -241,14 +302,20 @@ export default function RecordMatchPage() {
       {/* Step 1: Game catalog selector */}
       {step === 1 && (
         <div className="step-panel fade-in">
-          <p className="step-instructions">Which game are you playing?</p>
+          <p className="step-instructions">Pick one or more games to log:</p>
           <div className="game-grid-select">
-            {games.map((g) => (
-              <Card key={g._id} className="game-select-card" onClick={() => handleSelectGame(g)}>
-                <div className="select-card-emoji">{g.icon || "🎮"}</div>
-                <h3 className="select-card-name">{g.name}</h3>
-              </Card>
-            ))}
+            {games.map((g) => {
+              const isSelected = selectedGames.some((selectedGame) => selectedGame._id === g._id);
+              return (
+                <Card key={g._id} className={`game-select-card ${isSelected ? "selected" : ""}`} onClick={() => toggleGameSelection(g)}>
+                  <div className="select-card-content">
+                    <div className="select-card-emoji">{g.icon || "🎮"}</div>
+                    <h3 className="select-card-name">{g.name}</h3>
+                  </div>
+                  {isSelected && <CheckCircle2 size={24} className="selection-checkmark" />}
+                </Card>
+              );
+            })}
           </div>
           {games.length === 0 && (
             <div className="step-empty-state">
@@ -256,16 +323,23 @@ export default function RecordMatchPage() {
               <Button onClick={() => router.push("/players")}>Manage Game Catalog</Button>
             </div>
           )}
+          <div className="wizard-footer-nav">
+            <Button size="lg" fullWidth onClick={() => setStep(2)} disabled={selectedGames.length === 0}>
+              Continue with {selectedGames.length > 0 ? `${selectedGames.length} selected game${selectedGames.length > 1 ? "s" : ""}` : "selection"}
+            </Button>
+          </div>
         </div>
       )}
 
       {/* Step 2: Match mode selector */}
-      {step === 2 && selectedGame && (
+      {step === 2 && selectedGames.length > 0 && (
         <div className="step-panel fade-in">
-          <p className="step-instructions">Select match format for {selectedGame.name}:</p>
+          <p className="step-instructions">
+            Select match format for {selectedGames.length === 1 ? selectedGames[0].name : `${selectedGames.length} selected games`}:
+          </p>
           <div className="mode-options-list">
-            {selectedGame.supportedModes.map((mode) => (
-              <Card key={mode} className="mode-select-card" onClick={() => handleSelectMode(mode)}>
+            {["Solo", "Free For All", "Team Match"].map((mode) => (
+              <Card key={mode} className="mode-select-card" onClick={() => handleSelectMode(mode as "Solo" | "Free For All" | "Team Match")}>
                 <div className="mode-select-text">
                   <h3>{mode}</h3>
                   <p>
@@ -282,7 +356,7 @@ export default function RecordMatchPage() {
       )}
 
       {/* Step 3: Player Selection / Team Builder */}
-      {step === 3 && selectedGame && (
+      {step === 3 && selectedGames.length > 0 && (
         <div className="step-panel fade-in">
           <p className="step-instructions">
             {matchMode === "Team Match"
@@ -377,106 +451,121 @@ export default function RecordMatchPage() {
       )}
 
       {/* Step 4: Enter Scores dialers */}
-      {step === 4 && selectedGame && (
+      {step === 4 && selectedGames.length > 0 && (
         <div className="step-panel fade-in">
-          <p className="step-instructions">Record scores to determine winner:</p>
+          <p className="step-instructions">Enter scores for each selected game:</p>
           
           <div className="scores-input-list">
-            {matchMode === "Team Match" ? (
-              // Team scores inputs
-              [teamAPlayers, teamBPlayers].map((tPlayers, idx) => {
-                const teamObj = dataService.getOrCreateTeam(tPlayers);
-                const tId = teamObj._id;
-                const score = scores[tId] || 0;
+            {selectedGames.map((game) => {
+              const gameScoresForGame = gameScores[game._id] || {};
+              const teamAInfo = getTeamDisplayInfo(teamAPlayers);
+              const teamBInfo = getTeamDisplayInfo(teamBPlayers);
 
-                return (
-                  <Card key={tId} className="score-input-card">
-                    <div className="score-card-header-info">
-                      <div className="score-card-avatars">
-                        {tPlayers.map((pId) => {
-                          const p = players.find((pl) => pl._id === pId);
-                          return <span key={pId}>{p?.avatar || "👤"}</span>;
-                        })}
-                      </div>
-                      <h3 className="score-card-name">{teamObj.name}</h3>
+              return (
+                <div key={game._id} className="game-score-section">
+                  <div className="game-score-header">
+                    <span className="game-score-icon">{game.icon || "🎮"}</span>
+                    <div>
+                      <h3 className="game-score-name">{game.name}</h3>
+                      <p className="game-score-caption">{matchMode === "Team Match" ? "Team scores" : "Player scores"}</p>
                     </div>
+                  </div>
 
-                    <div className="score-entry-widget">
-                      <button type="button" className="dial-btn dial-minus" onClick={() => adjustScore(tId, -1)}>
-                        <Minus size={18} />
-                      </button>
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={score}
-                        onChange={(e) => handleScoreInput(tId, e.target.value)}
-                        className="score-text-input"
-                      />
-                      <button type="button" className="dial-btn dial-plus" onClick={() => adjustScore(tId, 1)}>
-                        <Plus size={18} />
-                      </button>
-                    </div>
+                  <div className="game-score-entry-list">
+                    {matchMode === "Team Match" ? (
+                      [teamAInfo, teamBInfo].map((team) => {
+                        const score = gameScoresForGame[team._id] || 0;
+                        return (
+                          <Card key={team._id} className="score-input-card">
+                            <div className="score-card-header-info">
+                              <div className="score-card-avatars">
+                                {team.members?.map((pId) => {
+                                  const p = players.find((pl) => pl._id === pId);
+                                  return <span key={pId}>{p?.avatar || "👤"}</span>;
+                                })}
+                              </div>
+                              <h3 className="score-card-name">{team.name}</h3>
+                            </div>
 
-                    <div className="quick-dials-row">
-                      <button type="button" className="quick-dial-pill" onClick={() => adjustScore(tId, 5)}>
-                        +5
-                      </button>
-                      <button type="button" className="quick-dial-pill" onClick={() => adjustScore(tId, 10)}>
-                        +10
-                      </button>
-                    </div>
-                  </Card>
-                );
-              })
-            ) : (
-              // Solo / FFA scores inputs
-              selectedPlayerIds.map((pId) => {
-                const p = players.find((pl) => pl._id === pId);
-                const score = scores[pId] || 0;
-                if (!p) return null;
+                            <div className="score-entry-widget">
+                              <button type="button" className="dial-btn dial-minus" onClick={() => adjustScore(game._id, team._id, -1)}>
+                                <Minus size={18} />
+                              </button>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={score}
+                                onChange={(e) => handleScoreInput(game._id, team._id, e.target.value)}
+                                className="score-text-input"
+                              />
+                              <button type="button" className="dial-btn dial-plus" onClick={() => adjustScore(game._id, team._id, 1)}>
+                                <Plus size={18} />
+                              </button>
+                            </div>
 
-                return (
-                  <Card key={pId} className="score-input-card">
-                    <div className="score-card-header-info">
-                      <span className="score-card-single-avatar">{p.avatar}</span>
-                      <h3 className="score-card-name">{p.name}</h3>
-                    </div>
+                            <div className="quick-dials-row">
+                              <button type="button" className="quick-dial-pill" onClick={() => adjustScore(game._id, team._id, 5)}>
+                                +5
+                              </button>
+                              <button type="button" className="quick-dial-pill" onClick={() => adjustScore(game._id, team._id, 10)}>
+                                +10
+                              </button>
+                            </div>
+                          </Card>
+                        );
+                      })
+                    ) : (
+                      selectedPlayerIds.map((pId) => {
+                        const p = players.find((pl) => pl._id === pId);
+                        const score = gameScoresForGame[pId] || 0;
+                        if (!p) return null;
 
-                    <div className="score-entry-widget">
-                      <button type="button" className="dial-btn dial-minus" onClick={() => adjustScore(pId, -1)}>
-                        <Minus size={18} />
-                      </button>
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={score}
-                        onChange={(e) => handleScoreInput(pId, e.target.value)}
-                        className="score-text-input"
-                      />
-                      <button type="button" className="dial-btn dial-plus" onClick={() => adjustScore(pId, 1)}>
-                        <Plus size={18} />
-                      </button>
-                    </div>
+                        return (
+                          <Card key={pId} className="score-input-card">
+                            <div className="score-card-header-info">
+                              <span className="score-card-single-avatar">{p.avatar}</span>
+                              <h3 className="score-card-name">{p.name}</h3>
+                            </div>
 
-                    <div className="quick-dials-row">
-                      <button type="button" className="quick-dial-pill" onClick={() => adjustScore(pId, 5)}>
-                        +5
-                      </button>
-                      <button type="button" className="quick-dial-pill" onClick={() => adjustScore(pId, 10)}>
-                        +10
-                      </button>
-                    </div>
-                  </Card>
-                );
-              })
-            )}
+                            <div className="score-entry-widget">
+                              <button type="button" className="dial-btn dial-minus" onClick={() => adjustScore(game._id, pId, -1)}>
+                                <Minus size={18} />
+                              </button>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={score}
+                                onChange={(e) => handleScoreInput(game._id, pId, e.target.value)}
+                                className="score-text-input"
+                              />
+                              <button type="button" className="dial-btn dial-plus" onClick={() => adjustScore(game._id, pId, 1)}>
+                                <Plus size={18} />
+                              </button>
+                            </div>
+
+                            <div className="quick-dials-row">
+                              <button type="button" className="quick-dial-pill" onClick={() => adjustScore(game._id, pId, 5)}>
+                                +5
+                              </button>
+                              <button type="button" className="quick-dial-pill" onClick={() => adjustScore(game._id, pId, 10)}>
+                                +10
+                              </button>
+                            </div>
+                          </Card>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="wizard-footer-nav">
             <Button size="lg" fullWidth onClick={handleSaveMatch}>
-              <Check size={18} /> Save Match Scores
+              <Check size={18} /> Save All Matches
             </Button>
           </div>
         </div>
@@ -556,18 +645,46 @@ export default function RecordMatchPage() {
         }
         .game-select-card {
           padding: var(--spacing-md) !important;
+          display: flex;
           align-items: center;
+          justify-content: space-between;
           text-align: center;
           cursor: pointer;
+          transition: all 0.2s ease;
+          position: relative;
+        }
+        .select-card-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: var(--spacing-xs);
+          flex-grow: 1;
+        }
+        .game-select-card.selected {
+          background-color: var(--primary-container);
+          border-color: var(--primary-container);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        :global([data-theme="dark"]) .game-select-card.selected {
+          background-color: var(--primary);
+          border-color: var(--primary);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        .game-select-card.selected .select-card-name {
+          color: #ffffff;
+        }
+        .selection-checkmark {
+          color: #ffffff;
+          flex-shrink: 0;
         }
         .select-card-emoji {
           font-size: 36px;
-          margin-bottom: var(--spacing-xs);
         }
         .select-card-name {
           font-size: 15px;
           font-weight: 700;
           color: var(--on-surface);
+          transition: color 0.2s ease;
         }
         .step-empty-state {
           text-align: center;
@@ -745,6 +862,37 @@ export default function RecordMatchPage() {
           display: flex;
           flex-direction: column;
           gap: var(--spacing-sm);
+        }
+        .game-score-section {
+          display: flex;
+          flex-direction: column;
+          gap: var(--spacing-xs);
+          padding: var(--spacing-sm);
+          border: 1px solid var(--outline-variant);
+          border-radius: var(--rounded-md);
+          background-color: var(--surface-container-low);
+        }
+        .game-score-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .game-score-icon {
+          font-size: 24px;
+        }
+        .game-score-name {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--on-surface);
+        }
+        .game-score-caption {
+          font-size: 12px;
+          color: var(--medium-grey);
+        }
+        .game-score-entry-list {
+          display: flex;
+          flex-direction: column;
+          gap: var(--spacing-xs);
         }
         .score-input-card {
           align-items: center;

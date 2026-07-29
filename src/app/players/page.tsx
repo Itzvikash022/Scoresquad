@@ -34,7 +34,7 @@ export default function ManagementPage() {
 
   const [gameName, setGameName] = useState("");
   const [gameIcon, setGameIcon] = useState("🎮");
-  const [gameModes, setGameModes] = useState<("Solo" | "Free For All" | "Team Match")[]>(["Solo"]);
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -93,42 +93,51 @@ export default function ManagementPage() {
       return;
     }
 
-    if (gameModes.length === 0) {
-      showToast("Select at least one game mode", "error");
-      return;
-    }
+    // Check duplicate (only if creating new, or if name changed)
+    const isDuplicate = games.some(
+      (g) =>
+        g.name.toLowerCase() === gameName.trim().toLowerCase() && g._id !== editingGameId
+    );
 
-    // Check duplicate
-    if (games.some((g) => g.name.toLowerCase() === gameName.trim().toLowerCase())) {
+    if (isDuplicate) {
       showToast("Game with this name already exists", "error");
       return;
     }
 
     try {
       dataService.saveGame({
+        _id: editingGameId || undefined,
         name: gameName.trim(),
         icon: gameIcon,
-        supportedModes: gameModes,
       });
-      showToast(`Game ${gameName} added!`, "success");
+      showToast(`Game ${editingGameId ? "updated" : "added"}!`, "success");
 
       setGameName("");
       setGameIcon("🎮");
-      setGameModes(["Solo"]);
+      setEditingGameId(null);
       setIsGameSheetOpen(false);
       loadData();
     } catch (err: any) {
-      showToast(err.message || "Failed to add game", "error");
+      showToast(err.message || "Failed to save game", "error");
     }
   };
 
-  const toggleGameMode = (mode: "Solo" | "Free For All" | "Team Match") => {
-    if (gameModes.includes(mode)) {
-      setGameModes(gameModes.filter((m) => m !== mode));
-    } else {
-      setGameModes([...gameModes, mode]);
+  const handleEditGame = (id: string, name: string, icon: string) => {
+    setEditingGameId(id);
+    setGameName(name);
+    setGameIcon(icon);
+    setIsGameSheetOpen(true);
+  };
+
+  const handleDeleteGame = (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete ${name}? This cannot be undone.`)) {
+      dataService.deleteGame(id);
+      showToast(`Game ${name} deleted`, "info");
+      loadData();
     }
   };
+
+
 
   // Import / Export
   const handleExport = () => {
@@ -164,14 +173,6 @@ export default function ManagementPage() {
           }
         }
       };
-    }
-  };
-
-  const handleReset = () => {
-    if (window.confirm("CRITICAL WARNING: This will permanently delete all local sessions, scores, tournaments, players, and match records. Are you absolutely sure?")) {
-      dataService.resetAllData();
-      showToast("Application data reset", "error");
-      loadData();
     }
   };
 
@@ -321,13 +322,49 @@ export default function ManagementPage() {
           <div className="games-list-scroll">
             {filteredGames.length > 0 ? (
               filteredGames.map((g) => (
-                <GameCard
-                  key={g._id}
-                  name={g.name}
-                  icon={g.icon}
-                  modes={g.supportedModes}
-                  totalMatches={g.totalMatchesPlayed}
-                />
+                <div key={g._id} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <GameCard
+                      name={g.name}
+                      icon={g.icon}
+                      totalMatches={g.totalMatchesPlayed}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleEditGame(g._id, g.name, g.icon)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "var(--rounded-default)",
+                        border: "1px solid var(--outline-variant)",
+                        background: "var(--surface-container-low)",
+                        color: "var(--on-surface)",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGame(g._id, g.name)}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "var(--rounded-default)",
+                        border: "1px solid var(--outline-variant)",
+                        background: "var(--surface-container-low)",
+                        color: "var(--medium-grey)",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               ))
             ) : (
               <div className="empty-state-box">
@@ -337,8 +374,8 @@ export default function ManagementPage() {
           </div>
 
           {/* Add Game Drawer */}
-          <BottomSheet isOpen={isGameSheetOpen} onClose={() => setIsGameSheetOpen(false)} title="Add Custom Game">
-            <form onSubmit={handleAddGame} className="drawer-form">
+          <BottomSheet isOpen={isGameSheetOpen} onClose={() => { setIsGameSheetOpen(false); setEditingGameId(null); setGameName(""); setGameIcon("🎮"); }} title={editingGameId ? "Edit Game" : "Add Custom Game"}>
+            <form onSubmit={(e) => { e.preventDefault(); handleAddGame(e); }} className="drawer-game-form">
               <div className="form-group">
                 <label className="form-label-el">Game Name</label>
                 <input
@@ -366,27 +403,10 @@ export default function ManagementPage() {
                   ))}
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label-el">Supported Match Formats</label>
-                <div className="modes-checkbox-row">
-                  {(["Solo", "Free For All", "Team Match"] as const).map((mode) => {
-                    const isSelected = gameModes.includes(mode);
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`mode-select-pill ${isSelected ? "selected" : ""}`}
-                        onClick={() => toggleGameMode(mode)}
-                      >
-                        {mode}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+
               <div className="form-submit-block">
                 <Button type="submit" fullWidth size="lg">
-                  Add Game to Catalog
+                  {editingGameId ? "Update Game" : "Add Game to Catalog"}
                 </Button>
               </div>
             </form>
@@ -428,17 +448,7 @@ export default function ManagementPage() {
             </Card>
 
             <h2 className="settings-section-title danger-text">Factory Reset</h2>
-            <Card className="settings-option-card border-danger">
-              <div className="option-row">
-                <div className="option-info">
-                  <h3 className="danger-text">Wipe All Application Data</h3>
-                  <p>Deletes all players, matches, active sessions, and database structures. Use with extreme caution.</p>
-                </div>
-                <Button size="md" variant="danger" onClick={handleReset}>
-                  <Trash2 size={16} /> Wipe Data
-                </Button>
-              </div>
-            </Card>
+
 
             <h2 className="settings-section-title">App Info</h2>
             <div className="app-info-block">

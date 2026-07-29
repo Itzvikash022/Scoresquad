@@ -20,7 +20,6 @@ export interface ClientGame {
   _id: string;
   name: string;
   icon: string;
-  supportedModes: ("Solo" | "Free For All" | "Team Match")[];
   totalMatchesPlayed: number;
 }
 
@@ -143,19 +142,20 @@ class DataService {
     }
   }
 
-  // Pull all data from server and overwrite local storage
+  // Pull all data from server and overwrite local storage, removing items not in DB
   public async fetchFromServer() {
     try {
       const response = await fetch("/api/sync");
       if (response.ok) {
         const data = await response.json();
-        if (data.players?.length) this.setStorage("players", data.players);
-        if (data.games?.length) this.setStorage("games", data.games);
-        if (data.sessions?.length) this.setStorage("sessions", data.sessions);
-        if (data.teams?.length) this.setStorage("teams", data.teams);
-        if (data.matches?.length) this.setStorage("matches", data.matches);
-        if (data.tournaments?.length) this.setStorage("tournaments", data.tournaments);
-        console.log("Local cache refreshed from database.");
+        // Always set data from server, even if empty (to sync deletions)
+        this.setStorage("players", Array.isArray(data.players) ? data.players : []);
+        this.setStorage("games", Array.isArray(data.games) ? data.games : []);
+        this.setStorage("sessions", Array.isArray(data.sessions) ? data.sessions : []);
+        this.setStorage("teams", Array.isArray(data.teams) ? data.teams : []);
+        this.setStorage("matches", Array.isArray(data.matches) ? data.matches : []);
+        this.setStorage("tournaments", Array.isArray(data.tournaments) ? data.tournaments : []);
+        console.log("Local cache synced with database.");
       }
     } catch (e) {
       console.warn("Could not fetch sync updates from server, running fully offline.", e);
@@ -311,6 +311,12 @@ class DataService {
     this.setStorage("games", games);
     this.addToQueue(game._id ? "UPDATE" : "CREATE", "GAME", savedGame);
     return savedGame;
+  }
+
+  public deleteGame(id: string): void {
+    const games = this.getStorage<ClientGame[]>("games", []).filter((g) => g._id !== id);
+    this.setStorage("games", games);
+    this.addToQueue("DELETE", "GAME", { _id: id });
   }
 
   // SESSIONS CRUD

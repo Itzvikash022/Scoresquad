@@ -33,6 +33,10 @@ function StatisticsContent() {
   const [selectedGameFilter, setSelectedGameFilter] = useState("");
   const [selectedPlayerFilter, setSelectedPlayerFilter] = useState("");
   const [historySearch, setHistorySearch] = useState("");
+  
+  // Expanded state for grouped matches
+  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
+  const [expandedTournaments, setExpandedTournaments] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // Set initial tab if URL query parameter matches
@@ -67,6 +71,178 @@ function StatisticsContent() {
 
     return matchesGame && matchesPlayer && matchesSearch;
   });
+
+  // Group matches by session (for quick matches) or tournament
+  const groupMatchesBySession = () => {
+    const sessionGroups: Record<string, ClientMatch[]> = {};
+    const ungroupedMatches: ClientMatch[] = [];
+
+    filteredMatches.forEach((m) => {
+      if (m.session) {
+        if (!sessionGroups[m.session]) {
+          sessionGroups[m.session] = [];
+        }
+        sessionGroups[m.session].push(m);
+      } else if (!m.tournament) {
+        // Only ungroup if not in a tournament either
+        ungroupedMatches.push(m);
+      }
+    });
+
+    return { sessionGroups, ungroupedMatches };
+  };
+
+  const groupMatchesByTournament = () => {
+    const tournamentGroups: Record<string, ClientMatch[]> = {};
+
+    filteredMatches.forEach((m) => {
+      if (m.tournament) {
+        if (!tournamentGroups[m.tournament]) {
+          tournamentGroups[m.tournament] = [];
+        }
+        tournamentGroups[m.tournament].push(m);
+      }
+    });
+
+    return tournamentGroups;
+  };
+
+  const { sessionGroups, ungroupedMatches } = groupMatchesBySession();
+  const tournamentGroups = groupMatchesByTournament();
+
+  // Format grouped session matches with combined scores
+  const formatGroupedSessionMatches = () => {
+    return Object.entries(sessionGroups).map(([sessionId, matchesInSession]) => {
+      if (matchesInSession.length === 0) return null;
+
+      const sessionObj = dataService.getSessions().find((s) => s._id === sessionId);
+      const firstMatch = matchesInSession[0];
+
+      // Calculate combined scores by team/player
+      const combinedScores: Record<string, number> = {};
+      matchesInSession.forEach((m) => {
+        Object.entries(m.scores).forEach(([id, score]) => {
+          combinedScores[id] = (combinedScores[id] || 0) + score;
+        });
+      });
+
+      // Format for display
+      if (firstMatch.matchType === "Team Match" && firstMatch.teams.length > 0) {
+        const teamScores = firstMatch.teams.map((tId) => {
+          const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+          const teamPlayers = teamObj.members.map((pId: string) => {
+            const pObj = dataService.getPlayers().find((p) => p._id === pId);
+            return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
+          });
+          return {
+            name: teamObj.name,
+            players: teamPlayers,
+            score: combinedScores[tId] || 0,
+            isWinner: combinedScores[firstMatch.teams[0]] !== combinedScores[firstMatch.teams[1]] && combinedScores[tId] === Math.max(...firstMatch.teams.map((id) => combinedScores[id])),
+          };
+        });
+
+        return {
+          _id: sessionId,
+          groupId: sessionId,
+          gameName: sessionObj?.name || "Quick Match Session",
+          gameIcon: "🎮",
+          date: matchesInSession[0].date,
+          matchType: "Team Match",
+          teamScores,
+          sessionName: sessionObj?.name,
+          matchCount: matchesInSession.length,
+          individualMatches: matchesInSession,
+          isGrouped: true,
+        };
+      } else {
+        // Solo/FFA grouped
+        const playerScores: Record<string, { name: string; players: any[]; score: number }> = {};
+        matchesInSession.forEach((m) => {
+          m.players.forEach((pId) => {
+            if (!playerScores[pId]) {
+              const pObj = dataService.getPlayers().find((p) => p._id === pId);
+              playerScores[pId] = {
+                name: pObj?.name || "Player",
+                players: [{ name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" }],
+                score: 0,
+              };
+            }
+            playerScores[pId].score += m.scores[pId] || 0;
+          });
+        });
+
+        return {
+          _id: sessionId,
+          groupId: sessionId,
+          gameName: sessionObj?.name || "Quick Match Session",
+          gameIcon: "🎮",
+          date: matchesInSession[0].date,
+          matchType: firstMatch.matchType,
+          teamScores: Object.values(playerScores),
+          sessionName: sessionObj?.name,
+          matchCount: matchesInSession.length,
+          individualMatches: matchesInSession,
+          isGrouped: true,
+        };
+      }
+    }).filter(Boolean);
+  };
+
+  // Format grouped tournament matches with combined scores
+  const formatGroupedTournamentMatches = () => {
+    return Object.entries(tournamentGroups).map(([tournamentId, matchesInTournament]) => {
+      if (matchesInTournament.length === 0) return null;
+
+      const tournamentObj = dataService.getTournaments?.().find((t: any) => t._id === tournamentId);
+      const firstMatch = matchesInTournament[0];
+
+      // Calculate combined scores by team/player
+      const combinedScores: Record<string, number> = {};
+      matchesInTournament.forEach((m) => {
+        Object.entries(m.scores).forEach(([id, score]) => {
+          combinedScores[id] = (combinedScores[id] || 0) + score;
+        });
+      });
+
+      // Format for display
+      if (firstMatch.matchType === "Team Match" && firstMatch.teams.length > 0) {
+        const teamScores = firstMatch.teams.map((tId) => {
+          const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+          const teamPlayers = teamObj.members.map((pId: string) => {
+            const pObj = dataService.getPlayers().find((p) => p._id === pId);
+            return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
+          });
+          return {
+            name: teamObj.name,
+            players: teamPlayers,
+            score: combinedScores[tId] || 0,
+            isWinner: combinedScores[firstMatch.teams[0]] !== combinedScores[firstMatch.teams[1]] && combinedScores[tId] === Math.max(...firstMatch.teams.map((id) => combinedScores[id])),
+          };
+        });
+
+        return {
+          _id: tournamentId,
+          groupId: tournamentId,
+          gameName: tournamentObj?.name || "Tournament",
+          gameIcon: "🏆",
+          date: matchesInTournament[0].date,
+          matchType: "Team Match",
+          teamScores,
+          sessionName: tournamentObj?.name,
+          matchCount: matchesInTournament.length,
+          individualMatches: matchesInTournament,
+          isGrouped: true,
+          isTournament: true,
+        };
+      }
+
+      return null;
+    }).filter(Boolean);
+  };
+
+  const groupedSessionMatches = formatGroupedSessionMatches();
+  const groupedTournamentMatches = formatGroupedTournamentMatches();
 
   // Format matches for rendering in MatchCard
   const formattedMatches = filteredMatches.map((m) => {
@@ -288,18 +464,189 @@ function StatisticsContent() {
 
           {/* History Matches List */}
           <div className="history-matches-scroller">
-            {formattedMatches.length > 0 ? (
-              formattedMatches.map((m) => (
-                <MatchCard
-                  key={m._id}
-                  gameName={m.gameName}
-                  gameIcon={m.gameIcon}
-                  date={m.date}
-                  matchType={m.matchType}
-                  teamScores={m.teamScores}
-                  sessionName={m.sessionName}
-                />
-              ))
+            {groupedSessionMatches.length > 0 || groupedTournamentMatches.length > 0 || ungroupedMatches.length > 0 ? (
+              <>
+                {groupedSessionMatches.map((grouped: any) => {
+                  const isExpanded = expandedSessions.has(grouped.groupId);
+                  return (
+                    <div key={grouped.groupId}>
+                      <div
+                        onClick={() => {
+                          const newExpanded = new Set(expandedSessions);
+                          if (isExpanded) {
+                            newExpanded.delete(grouped.groupId);
+                          } else {
+                            newExpanded.add(grouped.groupId);
+                          }
+                          setExpandedSessions(newExpanded);
+                        }}
+                        style={{
+                          padding: "12px",
+                          background: "var(--surface-container-low)",
+                          borderRadius: "var(--rounded-md)",
+                          cursor: "pointer",
+                          marginBottom: "8px",
+                          border: "1px solid var(--outline-variant)",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1 }}>
+                            <span style={{ fontSize: "20px" }}>{grouped.gameIcon}</span>\n                            <div>
+                              <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--on-surface)" }}>
+                                {grouped.gameName} ({grouped.matchCount} games)
+                              </div>
+                              <div style={{ fontSize: "12px", color: "var(--medium-grey)" }}>
+                                {new Date(grouped.date).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--primary-container)", minWidth: "120px", textAlign: "right" }}>
+                            {grouped.teamScores[0]?.score || 0} : {grouped.teamScores[1]?.score || 0}
+                          </div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div style={{ paddingLeft: "12px", borderLeft: "2px solid var(--primary-container)", marginBottom: "12px" }}>
+                          {grouped.individualMatches.map((match: ClientMatch, idx: number) => {
+                            const gameObj = games.find((g) => g._id === match.game);
+                            const matchTeamScores = match.teams.map((tId) => {
+                              const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+                              const teamPlayers = teamObj.members.map((pId: string) => {
+                                const pObj = dataService.getPlayers().find((p) => p._id === pId);
+                                return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
+                              });
+                              return {
+                                name: teamObj.name,
+                                players: teamPlayers,
+                                score: match.scores[tId] || 0,
+                                isWinner: match.winners.includes(tId),
+                              };
+                            });
+                            return (
+                              <MatchCard
+                                key={`${grouped.groupId}-${idx}`}
+                                gameName={gameObj?.name || "Unknown"}
+                                gameIcon={gameObj?.icon || "🎮"}
+                                date={match.date}
+                                matchType={match.matchType}
+                                teamScores={matchTeamScores}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {groupedTournamentMatches.map((grouped: any) => {
+                  const isExpanded = expandedTournaments.has(grouped.groupId);
+                  return (
+                    <div key={grouped.groupId}>
+                      <div
+                        onClick={() => {
+                          const newExpanded = new Set(expandedTournaments);
+                          if (isExpanded) {
+                            newExpanded.delete(grouped.groupId);
+                          } else {
+                            newExpanded.add(grouped.groupId);
+                          }
+                          setExpandedTournaments(newExpanded);
+                        }}
+                        style={{
+                          padding: "12px",
+                          background: "var(--surface-container-low)",
+                          borderRadius: "var(--rounded-md)",
+                          cursor: "pointer",
+                          marginBottom: "8px",
+                          border: "1px solid var(--outline-variant)",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1 }}>
+                            <span style={{ fontSize: "20px" }}>{grouped.gameIcon}</span>
+                            <div>
+                              <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--on-surface)" }}>
+                                {grouped.gameName} ({grouped.matchCount} matches)
+                              </div>
+                              <div style={{ fontSize: "12px", color: "var(--medium-grey)" }}>
+                                {new Date(grouped.date).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--accent-gold)", minWidth: "120px", textAlign: "right" }}>
+                            {grouped.teamScores[0]?.score || 0} : {grouped.teamScores[1]?.score || 0}
+                          </div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div style={{ paddingLeft: "12px", borderLeft: "2px solid var(--accent-gold)", marginBottom: "12px" }}>
+                          {grouped.individualMatches.map((match: ClientMatch, idx: number) => {
+                            const gameObj = games.find((g) => g._id === match.game);
+                            const matchTeamScores = match.teams.map((tId) => {
+                              const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+                              const teamPlayers = teamObj.members.map((pId: string) => {
+                                const pObj = dataService.getPlayers().find((p) => p._id === pId);
+                                return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
+                              });
+                              return {
+                                name: teamObj.name,
+                                players: teamPlayers,
+                                score: match.scores[tId] || 0,
+                                isWinner: match.winners.includes(tId),
+                              };
+                            });
+                            return (
+                              <MatchCard
+                                key={`${grouped.groupId}-${idx}`}
+                                gameName={gameObj?.name || "Unknown"}
+                                gameIcon={gameObj?.icon || "🎮"}
+                                date={match.date}
+                                matchType={match.matchType}
+                                teamScores={matchTeamScores}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {ungroupedMatches.map((m) => {
+                  const gameObj = games.find((g) => g._id === m.game) || { name: "Unknown", icon: "🎮" };
+                  const teamScores = m.teams.map((tId) => {
+                    const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+                    const teamPlayers = teamObj.members.map((pId: string) => {
+                      const pObj = dataService.getPlayers().find((p) => p._id === pId);
+                      return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
+                    });
+                    return {
+                      name: teamObj.name,
+                      players: teamPlayers,
+                      score: m.scores[tId] || 0,
+                      isWinner: m.winners.includes(tId),
+                    };
+                  });
+                  const soloScores = m.players.map((pId) => {
+                    const pObj = dataService.getPlayers().find((p) => p._id === pId) || { name: "Player", avatar: "👤" };
+                    return {
+                      name: pObj.name,
+                      players: [{ name: pObj.name, avatar: pObj.avatar }],
+                      score: m.scores[pId] || 0,
+                      isWinner: m.winners.includes(pId),
+                    };
+                  });
+                  return (
+                    <MatchCard
+                      key={m._id}
+                      gameName={gameObj.name}
+                      gameIcon={gameObj.icon}
+                      date={m.date}
+                      matchType={m.matchType}
+                      teamScores={m.matchType === "Team Match" ? teamScores : soloScores}
+                    />
+                  );
+                })}
+              </>
             ) : (
               <div className="empty-state-box">No matches match your filter criteria.</div>
             )}
