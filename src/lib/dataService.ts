@@ -23,17 +23,6 @@ export interface ClientGame {
   totalMatchesPlayed: number;
 }
 
-export interface ClientSession {
-  _id: string;
-  name: string;
-  date: string;
-  durationMinutes: number;
-  totalMatches: number;
-  mvp?: string; // Player ID
-  champion?: string; // Player ID
-  isActive: boolean;
-}
-
 export interface ClientTeam {
   _id: string;
   key: string;
@@ -49,7 +38,7 @@ export interface ClientTeam {
 export interface ClientMatch {
   _id: string;
   date: string;
-  session?: string; // Session ID
+  roundId?: string; // Round ID for grouping
   game: string; // Game ID
   matchType: "Solo" | "Free For All" | "Team Match";
   players: string[]; // Player IDs
@@ -84,11 +73,29 @@ const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now(
 // Initial Mock Seed Data (set to empty arrays to start blank)
 const DEFAULT_PLAYERS: ClientPlayer[] = [];
 const DEFAULT_GAMES: ClientGame[] = [];
-const DEFAULT_SESSIONS: ClientSession[] = [];
 const DEFAULT_TEAMS: ClientTeam[] = [];
 const DEFAULT_MATCHES: ClientMatch[] = [];
 
 class DataService {
+  private listeners: (() => void)[] = [];
+
+  public subscribe(listener: () => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private emitChange(): void {
+    this.listeners.forEach((listener) => {
+      try {
+        listener();
+      } catch (e) {
+        console.error("Error in dataService subscriber:", e);
+      }
+    });
+  }
+
   private getStorage<T>(key: string, defaultValue: T): T {
     if (typeof window === "undefined") return defaultValue;
     const value = localStorage.getItem(key);
@@ -107,6 +114,7 @@ class DataService {
   private setStorage<T>(key: string, value: T): void {
     if (typeof window !== "undefined") {
       localStorage.setItem(key, JSON.stringify(value));
+      this.emitChange();
     }
   }
 
@@ -127,7 +135,6 @@ class DataService {
     if (typeof window !== "undefined") {
       if (!localStorage.getItem("players")) this.setStorage("players", DEFAULT_PLAYERS);
       if (!localStorage.getItem("games")) this.setStorage("games", DEFAULT_GAMES);
-      if (!localStorage.getItem("sessions")) this.setStorage("sessions", DEFAULT_SESSIONS);
       if (!localStorage.getItem("teams")) this.setStorage("teams", DEFAULT_TEAMS);
       if (!localStorage.getItem("matches")) this.setStorage("matches", DEFAULT_MATCHES);
       if (!localStorage.getItem("tournaments")) this.setStorage("tournaments", []);
@@ -151,7 +158,6 @@ class DataService {
         // Always set data from server, even if empty (to sync deletions)
         this.setStorage("players", Array.isArray(data.players) ? data.players : []);
         this.setStorage("games", Array.isArray(data.games) ? data.games : []);
-        this.setStorage("sessions", Array.isArray(data.sessions) ? data.sessions : []);
         this.setStorage("teams", Array.isArray(data.teams) ? data.teams : []);
         this.setStorage("matches", Array.isArray(data.matches) ? data.matches : []);
         this.setStorage("tournaments", Array.isArray(data.tournaments) ? data.tournaments : []);
@@ -180,10 +186,11 @@ class DataService {
         this.setStorage("sync_queue", []);
         console.log("Background sync completed successfully!");
         // Refresh local cache with clean server state
-        this.fetchFromServer();
+        await this.fetchFromServer();
       }
     } catch (e) {
       console.error("Auto sync failed, will retry on next connection change", e);
+      throw e;
     }
   }
 
@@ -192,7 +199,6 @@ class DataService {
     const data = {
       players: this.getStorage<ClientPlayer[]>("players", []),
       games: this.getStorage<ClientGame[]>("games", []),
-      sessions: this.getStorage<ClientSession[]>("sessions", []),
       teams: this.getStorage<ClientTeam[]>("teams", []),
       matches: this.getStorage<ClientMatch[]>("matches", []),
       tournaments: this.getStorage<ClientTournament[]>("tournaments", []),
@@ -206,20 +212,19 @@ class DataService {
       if (
         Array.isArray(data.players) &&
         Array.isArray(data.games) &&
-        Array.isArray(data.sessions) &&
         Array.isArray(data.teams) &&
         Array.isArray(data.matches) &&
         Array.isArray(data.tournaments)
       ) {
         this.setStorage("players", data.players);
         this.setStorage("games", data.games);
-        this.setStorage("sessions", data.sessions);
         this.setStorage("teams", data.teams);
         this.setStorage("matches", data.matches);
         this.setStorage("tournaments", data.tournaments);
         
         // Push batch sync event
         this.addToQueue("IMPORT", "ALL", data);
+        this.recalculateAllStats();
         return true;
       }
       return false;
@@ -231,7 +236,6 @@ class DataService {
   public resetAllData() {
     this.setStorage("players", DEFAULT_PLAYERS);
     this.setStorage("games", DEFAULT_GAMES);
-    this.setStorage("sessions", DEFAULT_SESSIONS);
     this.setStorage("teams", DEFAULT_TEAMS);
     this.setStorage("matches", DEFAULT_MATCHES);
     this.setStorage("tournaments", []);
@@ -284,6 +288,7 @@ class DataService {
     const players = this.getStorage<ClientPlayer[]>("players", []).filter((p) => p._id !== id);
     this.setStorage("players", players);
     this.addToQueue("DELETE", "PLAYER", { _id: id });
+    this.recalculateAllStats();
   }
 
   // GAMES CRUD
@@ -317,44 +322,7 @@ class DataService {
     const games = this.getStorage<ClientGame[]>("games", []).filter((g) => g._id !== id);
     this.setStorage("games", games);
     this.addToQueue("DELETE", "GAME", { _id: id });
-  }
-
-  // SESSIONS CRUD
-  public getSessions(): ClientSession[] {
-    return this.getStorage<ClientSession[]>("sessions", []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }
-
-  public getActiveSession(): ClientSession | undefined {
-    return this.getSessions().find((s) => s.isActive);
-  }
-
-  public saveSession(session: Omit<ClientSession, "_id" | "totalMatches" | "durationMinutes"> & { _id?: string }): ClientSession {
-    const sessions = this.getStorage<ClientSession[]>("sessions", []);
-    let savedSession: ClientSession;
-
-    // Auto-deactivate others if starting a new active session
-    if (session.isActive) {
-      sessions.forEach((s) => {
-        if (s.isActive) s.isActive = false;
-      });
-    }
-
-    if (session._id) {
-      sessions.forEach((s, idx) => {
-        if (s._id === session._id) {
-          sessions[idx] = { ...s, ...session };
-          savedSession = sessions[idx];
-        }
-      });
-      savedSession! = savedSession! || { ...session, _id: session._id, totalMatches: 0, durationMinutes: 0 };
-    } else {
-      savedSession = { ...session, _id: generateId(), totalMatches: 0, durationMinutes: 0 };
-      sessions.push(savedSession);
-    }
-
-    this.setStorage("sessions", sessions);
-    this.addToQueue(session._id ? "UPDATE" : "CREATE", "SESSION", savedSession);
-    return savedSession;
+    this.recalculateAllStats();
   }
 
   // TEAMS CRUD
@@ -397,71 +365,181 @@ class DataService {
     return this.getStorage<ClientMatch[]>("matches", []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
-  public saveMatch(match: Omit<ClientMatch, "_id" | "date">): ClientMatch {
+  public saveMatch(match: Omit<ClientMatch, "_id" | "date"> & { _id?: string; date?: string }): ClientMatch {
     const matches = this.getStorage<ClientMatch[]>("matches", []);
-    const savedMatch: ClientMatch = {
-      ...match,
-      _id: generateId(),
-      date: new Date().toISOString(),
-    };
+    let savedMatch: ClientMatch;
 
-    matches.push(savedMatch);
-    this.setStorage("matches", matches);
+    const id = match._id || generateId();
+    const rId = match.roundId || id;
 
-    // Update Player & Team Statistics based on Match results
-    this.updateStatsFromMatch(savedMatch);
+    if (match._id) {
+      const idx = matches.findIndex((m) => m._id === match._id);
+      if (idx !== -1) {
+        savedMatch = {
+          ...matches[idx],
+          ...match,
+          roundId: rId,
+          _id: match._id,
+          date: match.date || matches[idx].date || new Date().toISOString(),
+        };
+        matches[idx] = savedMatch;
+      } else {
+        savedMatch = {
+          ...match,
+          roundId: rId,
+          _id: match._id,
+          date: match.date || new Date().toISOString(),
+        } as ClientMatch;
+        matches.push(savedMatch);
+      }
+      this.setStorage("matches", matches);
+      this.addToQueue("UPDATE", "MATCH", savedMatch);
+    } else {
+      savedMatch = {
+        ...match,
+        roundId: rId,
+        _id: id,
+        date: new Date().toISOString(),
+      } as ClientMatch;
+      matches.push(savedMatch);
+      this.setStorage("matches", matches);
+      this.addToQueue("CREATE", "MATCH", savedMatch);
+    }
 
-    // Queue sync
-    this.addToQueue("CREATE", "MATCH", savedMatch);
+    // Rebuild all statistics
+    this.recalculateAllStats();
+
+    // Sync with tournament if needed
+    if (savedMatch.isTournamentMatch && savedMatch.tournament) {
+      this.syncTournamentFromMatches(savedMatch.tournament);
+    }
+
     return savedMatch;
   }
 
-  // Scoring Logic Implementation
-  private updateStatsFromMatch(match: ClientMatch) {
+  public deleteMatch(matchId: string) {
+    const matches = this.getStorage<ClientMatch[]>("matches", []);
+    const matchToDelete = matches.find((m) => m._id === matchId);
+    if (!matchToDelete) return;
+
+    const filtered = matches.filter((m) => m._id !== matchId);
+    this.setStorage("matches", filtered);
+    this.addToQueue("DELETE", "MATCH", { _id: matchId });
+
+    this.recalculateAllStats();
+
+    if (matchToDelete.isTournamentMatch && matchToDelete.tournament) {
+      this.syncTournamentFromMatches(matchToDelete.tournament);
+    }
+  }
+
+  public deleteRound(roundId: string) {
+    const matches = this.getStorage<ClientMatch[]>("matches", []);
+    const matchesToDelete = matches.filter((m) => (m.roundId || m._id) === roundId);
+    if (matchesToDelete.length === 0) return;
+
+    const filtered = matches.filter((m) => (m.roundId || m._id) !== roundId);
+    this.setStorage("matches", filtered);
+
+    const tournamentIdsToSync = new Set<string>();
+
+    matchesToDelete.forEach((m) => {
+      this.addToQueue("DELETE", "MATCH", { _id: m._id });
+      if (m.isTournamentMatch && m.tournament) {
+        tournamentIdsToSync.add(m.tournament);
+      }
+    });
+
+    this.recalculateAllStats();
+
+    tournamentIdsToSync.forEach((tId) => {
+      this.syncTournamentFromMatches(tId);
+    });
+  }
+
+  // Dynamic Full Stats Recalculator from Scratch
+  public recalculateAllStats() {
     const players = this.getStorage<ClientPlayer[]>("players", []);
     const games = this.getStorage<ClientGame[]>("games", []);
-    const sessions = this.getStorage<ClientSession[]>("sessions", []);
     const teams = this.getStorage<ClientTeam[]>("teams", []);
+    const matches = this.getStorage<ClientMatch[]>("matches", []).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // 1. Update Game total matches
-    const game = games.find((g) => g._id === match.game);
-    if (game) game.totalMatchesPlayed += 1;
+    // 1. Reset Players
+    players.forEach((p) => {
+      p.totalPoints = 0;
+      p.matches = 0;
+      p.wins = 0;
+      p.losses = 0;
+      p.winRate = 0;
+      p.recentForm = [];
+    });
 
-    // 2. Update Session total matches
-    if (match.session) {
-      const session = sessions.find((s) => s._id === match.session);
-      if (session) session.totalMatches += 1;
-    }
+    // 2. Reset Teams
+    teams.forEach((t) => {
+      t.games = 0;
+      t.wins = 0;
+      t.points = 0;
+      t.winRate = 0;
+      t.recentForm = [];
+    });
 
-    // 3. Process Wins/Losses and Points
-    if (match.matchType === "Team Match") {
-      // In Team Matches, each team receives their score, and each player gets half score
-      match.teams.forEach((tId) => {
-        const teamObj = teams.find((t) => t._id === tId);
-        if (!teamObj) return;
+    // 3. Reset Games
+    games.forEach((g) => {
+      g.totalMatchesPlayed = 0;
+    });
 
-        const score = match.scores[tId] || 0;
-        const isWinner = match.winners.includes(tId);
+    // 4. Process matches in chronological order to build stats
+    matches.forEach((match) => {
+      const gameObj = games.find((g) => g._id === match.game);
+      if (gameObj) gameObj.totalMatchesPlayed += 1;
 
-        // Update team stats
-        teamObj.games += 1;
-        teamObj.points += score;
-        if (isWinner) {
-          teamObj.wins += 1;
-          teamObj.recentForm.push("W");
-        } else {
-          teamObj.recentForm.push("L");
-        }
-        teamObj.winRate = (teamObj.wins / teamObj.games) * 100;
+      if (match.matchType === "Team Match") {
+        match.teams.forEach((tId) => {
+          const teamObj = teams.find((t) => t._id === tId);
+          if (!teamObj) return;
 
-        // Split score equally among team members
-        const splitScore = Math.round(score / Math.max(teamObj.members.length, 1));
-        teamObj.members.forEach((pId) => {
+          const score = match.scores[tId] || 0;
+          const isWinner = match.winners.includes(tId);
+
+          teamObj.games += 1;
+          teamObj.points += score;
+          if (isWinner) {
+            teamObj.wins += 1;
+            teamObj.recentForm.push("W");
+          } else {
+            teamObj.recentForm.push("L");
+          }
+          teamObj.winRate = (teamObj.wins / teamObj.games) * 100;
+
+          // Split score equally among team members
+          const splitScore = Math.round(score / Math.max(teamObj.members.length, 1));
+          teamObj.members.forEach((pId) => {
+            const playerObj = players.find((p) => p._id === pId);
+            if (!playerObj) return;
+
+            playerObj.matches += 1;
+            playerObj.totalPoints += splitScore;
+            if (isWinner) {
+              playerObj.wins += 1;
+              playerObj.recentForm.push("W");
+            } else {
+              playerObj.losses += 1;
+              playerObj.recentForm.push("L");
+            }
+            playerObj.winRate = (playerObj.wins / playerObj.matches) * 100;
+          });
+        });
+      } else {
+        // Solo / Free For All
+        match.players.forEach((pId) => {
           const playerObj = players.find((p) => p._id === pId);
           if (!playerObj) return;
 
+          const score = match.scores[pId] || 0;
+          const isWinner = match.winners.includes(pId);
+
           playerObj.matches += 1;
-          playerObj.totalPoints += splitScore;
+          playerObj.totalPoints += score;
           if (isWinner) {
             playerObj.wins += 1;
             playerObj.recentForm.push("W");
@@ -471,95 +549,27 @@ class DataService {
           }
           playerObj.winRate = (playerObj.wins / playerObj.matches) * 100;
         });
-      });
-    } else {
-      // Solo / Free For All
-      match.players.forEach((pId) => {
-        const playerObj = players.find((p) => p._id === pId);
-        if (!playerObj) return;
+      }
+    });
 
-        const score = match.scores[pId] || 0;
-        const isWinner = match.winners.includes(pId);
+    // 5. Cap recent forms to last 5 entries
+    players.forEach((p) => {
+      if (p.recentForm.length > 5) p.recentForm = p.recentForm.slice(-5);
+      else if (p.matches > 0) p.losses = p.matches - p.wins;
+    });
+    teams.forEach((t) => {
+      if (t.recentForm.length > 5) t.recentForm = t.recentForm.slice(-5);
+    });
 
-        playerObj.matches += 1;
-        playerObj.totalPoints += score;
-        if (isWinner) {
-          playerObj.wins += 1;
-          playerObj.recentForm.push("W");
-        } else {
-          playerObj.losses += 1;
-          playerObj.recentForm.push("L");
-        }
-        playerObj.winRate = (playerObj.wins / playerObj.matches) * 100;
-      });
-    }
-
-    // Save recalculated states back
+    // 6. Save recalculated states back
     this.setStorage("players", players);
     this.setStorage("games", games);
-    this.setStorage("sessions", sessions);
     this.setStorage("teams", teams);
 
-    // Update tournament standings if this is a tournament match
-    if (match.isTournamentMatch && match.tournament) {
-      const tournaments = this.getStorage<ClientTournament[]>("tournaments", []);
-      const tournyIdx = tournaments.findIndex((t) => t._id === match.tournament);
-      if (tournyIdx !== -1) {
-        const tourny = tournaments[tournyIdx];
-        if (!tourny.standings) tourny.standings = {};
-
-        if (tourny.isTeamMode) {
-          match.teams.forEach((tId) => {
-            if (!tourny.standings[tId]) {
-              tourny.standings[tId] = { wins: 0, losses: 0, points: 0, games: 0 };
-            }
-            const score = match.scores[tId] || 0;
-            const isWinner = match.winners.includes(tId);
-
-            tourny.standings[tId].games += 1;
-            tourny.standings[tId].points += score;
-            if (isWinner) {
-              tourny.standings[tId].wins += 1;
-            } else {
-              tourny.standings[tId].losses += 1;
-            }
-          });
-        } else {
-          match.players.forEach((pId) => {
-            if (!tourny.standings[pId]) {
-              tourny.standings[pId] = { wins: 0, losses: 0, points: 0, games: 0 };
-            }
-            const score = match.scores[pId] || 0;
-            const isWinner = match.winners.includes(pId);
-
-            tourny.standings[pId].games += 1;
-            tourny.standings[pId].points += score;
-            if (isWinner) {
-              tourny.standings[pId].wins += 1;
-            } else {
-              tourny.standings[pId].losses += 1;
-            }
-          });
-        }
-
-        tournaments[tournyIdx] = tourny;
-        this.setStorage("tournaments", tournaments);
-        this.addToQueue("UPDATE", "TOURNAMENT", tourny);
-      }
-    }
-
-    // Save updates in background sync queue for the related players
-    players.forEach((p) => {
-      if (match.players.includes(p._id)) {
-        this.addToQueue("UPDATE", "PLAYER", p);
-      }
-    });
-    if (game) this.addToQueue("UPDATE", "GAME", game);
-    teams.forEach((t) => {
-      if (match.teams.includes(t._id)) {
-        this.addToQueue("UPDATE", "TEAM", t);
-      }
-    });
+    // 7. Sync queue updates for modified stats
+    players.forEach((p) => this.addToQueue("UPDATE", "PLAYER", p));
+    games.forEach((g) => this.addToQueue("UPDATE", "GAME", g));
+    teams.forEach((t) => this.addToQueue("UPDATE", "TEAM", t));
   }
 
   // TOURNAMENTS CRUD
@@ -601,7 +611,6 @@ class DataService {
       standings[pId] = { wins: 0, losses: 0, points: 0, games: 0 };
     });
 
-    // Pre-generate all unique group pairings (everyone plays everyone once)
     const fixtures: any[] = [];
     let idCounter = 1;
     for (let i = 0; i < participantIds.length; i++) {
@@ -633,6 +642,207 @@ class DataService {
     };
 
     return this.saveTournament(newTournament);
+  }
+
+  // Hierarchy Management: Sync brackets and standings of tournament from matches
+  public syncTournamentFromMatches(tournamentId: string) {
+    const tournaments = this.getTournaments();
+    const tournament = tournaments.find((t) => t._id === tournamentId);
+    if (!tournament) return;
+
+    const matches = this.getStorage<ClientMatch[]>("matches", []);
+    // Find all matches for this tournament
+    const tourneyMatches = matches.filter((m) => m.tournament === tournamentId && m.isTournamentMatch);
+
+    // Group matches by fixtureId
+    const fixtureMatches: Record<string, ClientMatch[]> = {};
+    tourneyMatches.forEach((m) => {
+      if (m.roundId) {
+        const parts = m.roundId.split("-");
+        const fixtureId = parts.slice(1).join("-");
+        if (fixtureId) {
+          if (!fixtureMatches[fixtureId]) fixtureMatches[fixtureId] = [];
+          fixtureMatches[fixtureId].push(m);
+        }
+      }
+    });
+
+    let changed = false;
+    if (tournament.bracket && Array.isArray(tournament.bracket.fixtures)) {
+      tournament.bracket.fixtures.forEach((fix: any) => {
+        const fixMatches = fixtureMatches[fix.id];
+        if (fixMatches) {
+          const sortedMatches = [...fixMatches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          
+          fix.games = Array.from({ length: tournament.gamesCount }, (_, idx) => {
+            const m = sortedMatches[idx];
+            if (m) {
+              return {
+                score1: m.scores[fix.p1] !== undefined ? m.scores[fix.p1] : null,
+                score2: m.scores[fix.p2] !== undefined ? m.scores[fix.p2] : null,
+                isPlayed: true,
+                gameId: m.game,
+              };
+            } else {
+              return {
+                score1: null,
+                score2: null,
+                isPlayed: false,
+                gameId: null,
+              };
+            }
+          });
+          changed = true;
+        } else {
+          // Reset to default empty games if no matches
+          fix.games = Array.from({ length: tournament.gamesCount }, () => ({
+            score1: null,
+            score2: null,
+            isPlayed: false,
+            gameId: null,
+          }));
+          changed = true;
+        }
+      });
+    }
+
+    if (changed) {
+      // Recalculate Standings
+      const standings: Record<string, { wins: number; losses: number; points: number; games: number }> = {};
+      tournament.participants.forEach((pId) => {
+        standings[pId] = { wins: 0, losses: 0, points: 0, games: 0 };
+      });
+
+      (tournament.bracket?.fixtures || []).forEach((f: any) => {
+        if (!standings[f.p1]) standings[f.p1] = { wins: 0, losses: 0, points: 0, games: 0 };
+        if (!standings[f.p2]) standings[f.p2] = { wins: 0, losses: 0, points: 0, games: 0 };
+
+        f.games.forEach((g: any) => {
+          if (g && g.isPlayed) {
+            standings[f.p1].games += 1;
+            standings[f.p2].games += 1;
+            standings[f.p1].points += g.score1 || 0;
+            standings[f.p2].points += g.score2 || 0;
+
+            if (g.score1 > g.score2) {
+              standings[f.p1].wins += 1;
+              standings[f.p2].losses += 1;
+            } else if (g.score2 > g.score1) {
+              standings[f.p2].wins += 1;
+              standings[f.p1].losses += 1;
+            }
+          }
+        });
+      });
+
+      tournament.standings = standings;
+
+      // Handle Esports stage advancements if action mode
+      this.checkActionTournamentAdvancement(tournament);
+
+      // Check if tournament is completed (e.g. final played) and assign champion
+      const finalFix = (tournament.bracket?.fixtures || []).find((f: any) => f.stage === "final");
+      if (finalFix && finalFix.games.every((g: any) => g.isPlayed)) {
+        let p1Wins = 0;
+        let p2Wins = 0;
+        finalFix.games.forEach((g: any) => {
+          if (g.score1 > g.score2) p1Wins++;
+          else if (g.score2 > g.score1) p2Wins++;
+        });
+        if (p1Wins !== p2Wins) {
+          tournament.champion = p1Wins > p2Wins ? finalFix.p1 : finalFix.p2;
+          tournament.runnerUp = p1Wins > p2Wins ? finalFix.p2 : finalFix.p1;
+          tournament.isActive = false;
+        }
+      }
+
+      this.saveTournament(tournament);
+    }
+  }
+
+  private checkActionTournamentAdvancement(tournament: ClientTournament) {
+    if (tournament.format !== "action") return;
+
+    const groupFixtures = (tournament.bracket?.fixtures || []).filter((f: any) => f.stage === "group");
+    const allGroupPlayed = groupFixtures.every((f: any) => f.games.every((g: any) => g.isPlayed));
+    const hasSemi = (tournament.bracket?.fixtures || []).some((f: any) => f.stage === "semifinal");
+
+    if (allGroupPlayed && !hasSemi) {
+      const groupStandings: Record<string, { wins: number; points: number }> = {};
+      tournament.participants.forEach((id) => { groupStandings[id] = { wins: 0, points: 0 }; });
+
+      groupFixtures.forEach((f: any) => {
+        f.games.forEach((g: any) => {
+          if (g.isPlayed) {
+            groupStandings[f.p1].points += g.score1 || 0;
+            groupStandings[f.p2].points += g.score2 || 0;
+            if (g.score1 > g.score2) groupStandings[f.p1].wins++;
+            else if (g.score2 > g.score1) groupStandings[f.p2].wins++;
+          }
+        });
+      });
+
+      const sortedGroup = Object.entries(groupStandings)
+        .map(([id, stats]: any) => ({ id, ...stats }))
+        .sort((a, b) => b.wins - a.wins || b.points - a.points);
+
+      const secondPlace = sortedGroup[1]?.id;
+      const thirdPlace = sortedGroup[2]?.id;
+
+      if (secondPlace && thirdPlace) {
+        tournament.bracket.fixtures.push({
+          id: "semifinal",
+          p1: secondPlace,
+          p2: thirdPlace,
+          games: Array.from({ length: tournament.gamesCount }, () => ({ score1: null, score2: null, isPlayed: false, gameId: null })),
+          stage: "semifinal",
+        });
+      }
+    }
+
+    const semiFix = (tournament.bracket?.fixtures || []).find((f: any) => f.stage === "semifinal");
+    const hasFinal = (tournament.bracket?.fixtures || []).some((f: any) => f.stage === "final");
+    if (semiFix && semiFix.games.every((g: any) => g.isPlayed) && !hasFinal) {
+      let p1Wins = 0;
+      let p2Wins = 0;
+      semiFix.games.forEach((g: any) => {
+        if (g.score1 > g.score2) p1Wins++;
+        else if (g.score2 > g.score1) p2Wins++;
+      });
+
+      const semiWinner = p1Wins > p2Wins ? semiFix.p1 : semiFix.p2;
+
+      const groupStandings: Record<string, { wins: number; points: number }> = {};
+      tournament.participants.forEach((id) => { groupStandings[id] = { wins: 0, points: 0 }; });
+
+      groupFixtures.forEach((f: any) => {
+        f.games.forEach((g: any) => {
+          if (g.isPlayed) {
+            groupStandings[f.p1].points += g.score1 || 0;
+            groupStandings[f.p2].points += g.score2 || 0;
+            if (g.score1 > g.score2) groupStandings[f.p1].wins++;
+            else if (g.score2 > g.score1) groupStandings[f.p2].wins++;
+          }
+        });
+      });
+
+      const sortedGroup = Object.entries(groupStandings)
+        .map(([id, stats]: any) => ({ id, ...stats }))
+        .sort((a, b) => b.wins - a.wins || b.points - a.points);
+
+      const firstPlace = sortedGroup[0]?.id;
+
+      if (firstPlace && semiWinner) {
+        if (!tournament.bracket.fixtures) tournament.bracket.fixtures = [];
+        tournament.bracket.fixtures.push({
+          id: "final",
+          p1: firstPlace,
+          p2: semiWinner,
+          games: Array.from({ length: tournament.gamesCount }, () => ({ score1: null, score2: null, isPlayed: false, gameId: null })),
+          stage: "final",
+        });
+      }
+    }
   }
 }
 

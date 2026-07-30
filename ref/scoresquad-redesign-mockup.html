@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScoreSquad — Redesign Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0B0E14;
+    --surface: #141922;
+    --surface-2: #1B212D;
+    --surface-3: #232B39;
+    --border: #262E3D;
+    --text: #EEF1F6;
+    --text-dim: #9AA3B5;
+    --text-faint: #626B7D;
+    --gold: #F2B84B;
+    --gold-soft: rgba(242,184,75,0.14);
+    --violet: #7C6FF2;
+    --violet-soft: rgba(124,111,242,0.16);
+    --violet-2: #6257D6;
+    --green: #45D999;
+    --green-soft: rgba(69,217,153,0.14);
+    --red: #F2665E;
+    --red-soft: rgba(242,102,94,0.14);
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 60px;
+  }
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background:
+      radial-gradient(700px 500px at 15% -5%, rgba(124,111,242,0.10), transparent 60%),
+      radial-gradient(600px 400px at 100% 0%, rgba(242,184,75,0.06), transparent 55%);
+    pointer-events:none;
+    z-index:0;
+  }
+
+  /* ---------- Mockup chrome (not part of the product) ---------- */
+  .meta-bar{
+    position:sticky; top:0; z-index:50;
+    background: rgba(11,14,20,0.92);
+    backdrop-filter: blur(10px);
+    border-bottom:1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .meta-row{
+    display:flex; align-items:center; justify-content:space-between;
+    max-width:1200px; margin:0 auto 10px auto; gap:12px; flex-wrap:wrap;
+  }
+  .meta-title{ font-family:var(--font-display); font-weight:600; font-size:14px; color:var(--text-dim); letter-spacing:0.02em;}
+  .meta-title b{ color:var(--text); }
+  .mode-toggle{
+    display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:3px; gap:2px;
+  }
+  .mode-toggle button{
+    border:none; background:transparent; color:var(--text-dim); font-family:var(--font-mono); font-size:11px;
+    letter-spacing:0.06em; text-transform:uppercase; padding:7px 14px; border-radius:999px; cursor:pointer;
+  }
+  .mode-toggle button.active{ background:var(--violet); color:white; }
+
+  .tab-strip{
+    display:flex; gap:8px; overflow-x:auto; max-width:1200px; margin:0 auto; padding-bottom:2px;
+    scrollbar-width:none;
+  }
+  .tab-strip::-webkit-scrollbar{ display:none; }
+  .tab-strip button{
+    flex:none; border:1px solid var(--border); background:var(--surface); color:var(--text-dim);
+    font-family:var(--font-body); font-weight:600; font-size:12.5px; padding:8px 14px; border-radius:999px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .tab-strip button.active{ background:var(--gold-soft); border-color: rgba(242,184,75,0.45); color:var(--gold); }
+
+  /* ---------- Product shell ---------- */
+  .stage{ max-width:1200px; margin:0 auto; padding: 22px 16px 60px; position:relative; z-index:1;}
+  body.mode-mobile .stage{ max-width:420px; }
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  .app-frame{
+    background: linear-gradient(180deg, #0D1119, #0B0E14 60%);
+    border:1px solid var(--border);
+    border-radius: 28px;
+    overflow:hidden;
+    box-shadow: 0 40px 80px -30px rgba(0,0,0,0.6);
+    position:relative;
+  }
+  @keyframes sheetUp{ from{ transform:translateY(24px); opacity:0; } to{ transform:translateY(0); opacity:1; } }
+  body.mode-desktop .app-frame.has-sidebar{ display:grid; grid-template-columns: 240px 1fr; }
+  .sidebar{ display:none; }
+  body.mode-desktop .sidebar{ display:flex; }
+  .sidebar{
+    flex-direction:column; gap:4px; padding:20px 14px; border-right:1px solid var(--border); background:var(--surface);
+  }
+  .sidebar .brand{ display:flex; align-items:center; gap:9px; padding:6px 10px 20px; }
+  .sidebar .brand .logo{ width:30px; height:30px; border-radius:9px; background:linear-gradient(145deg, var(--violet), var(--violet-2)); display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .sidebar .brand span{ font-family:var(--font-display); font-weight:700; font-size:15.5px; }
+  .sidebar a{
+    display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:var(--radius-sm); color:var(--text-dim);
+    font-size:13.5px; font-weight:600; text-decoration:none;
+  }
+  .sidebar a.active{ background:var(--violet-soft); color:var(--text); }
+  .sidebar a .ic{ width:18px; height:18px; opacity:0.9;}
+
+  .content-col{ min-width:0; }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--border);
+  }
+  .topbar-left{ display:flex; align-items:center; gap:10px; }
+  body.mode-desktop .app-frame.has-sidebar .topbar .brand-inline{ display:none; }
+  .brand-inline{ display:flex; align-items:center; gap:9px; }
+  .brand-inline .logo{ width:26px; height:26px; border-radius:8px; background:linear-gradient(145deg, var(--violet), var(--violet-2)); display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .brand-inline span{ font-family:var(--font-display); font-weight:700; font-size:15px; }
+  .back-btn{
+    width:32px; height:32px; border-radius:10px; background:var(--surface-2); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; color:var(--text-dim); cursor:pointer; flex:none;
+  }
+  .page-title{ font-family:var(--font-display); font-weight:600; font-size:15.5px; }
+  .topbar-right{ display:flex; align-items:center; gap:8px; }
+  .sync-pill{
+    display:flex; align-items:center; gap:5px; background:var(--green-soft); color:var(--green); border:1px solid rgba(69,217,153,0.3);
+    padding:5px 10px 5px 8px; border-radius:999px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.03em; font-weight:600;
+  }
+  .icon-btn{
+    width:32px; height:32px; border-radius:10px; background:var(--surface-2); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; color:var(--text-dim); cursor:pointer;
+  }
+
+  .body-pad{ padding: 18px; }
+
+  svg.ic{ width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; display:block; }
+
+  h1,h2,h3{ font-family:var(--font-display); }
+  .eyebrow{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.11em; text-transform:uppercase; color:var(--text-faint); font-weight:600; }
+
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); }
+
+  .btn-primary{
+    background:var(--violet); color:white; border:none; border-radius:var(--radius-md); font-family:var(--font-body);
+    font-weight:700; font-size:14.5px; padding:14px 18px; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer;
+  }
+  .btn-ghost{
+    background:var(--surface-2); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-md);
+    font-weight:600; font-size:13.5px; padding:11px 16px; cursor:pointer; display:flex; align-items:center; gap:7px; justify-content:center;
+  }
+
+  /* bottom tab bar (mobile) */
+  .bottom-nav{
+    display:flex; border-top:1px solid var(--border); background:var(--surface);
+  }
+  body.mode-desktop .app-frame.has-sidebar .bottom-nav{ display:none; }
+  .bottom-nav a{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:11px 4px 12px; text-decoration:none;
+    color:var(--text-faint); font-size:10.5px; font-weight:600;
+  }
+  .bottom-nav a.active{ color:var(--gold); }
+  .bottom-nav a .ic{ width:19px; height:19px; }
+
+  .chip{
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text-dim);
+    font-family:var(--font-mono); font-size:11.5px; font-weight:600; padding:7px 12px; border-radius:999px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .chip:active{ background:var(--surface-3); }
+
+  .avatar{ width:36px; height:36px; border-radius:11px; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-family:var(--font-display); font-size:13px; color:#fff; flex:none; }
+  .avatar.sm{ width:30px; height:30px; border-radius:9px; font-size:11.5px; }
+  .avatar.xs{ width:26px; height:26px; border-radius:8px; font-size:10.5px; }
+  .avatar.tint-1{ background:linear-gradient(155deg,#7C6FF2,#5A4FD1); }
+  .avatar.tint-2{ background:linear-gradient(155deg,#F2B84B,#C98F27); color:#231702; }
+  .avatar.tint-3{ background:linear-gradient(155deg,#45D999,#1FA774); }
+  .avatar.tint-4{ background:linear-gradient(155deg,#F2665E,#C94640); }
+  .avatar.tint-5{ background:var(--surface-3); color:var(--text-dim); border:1px solid var(--border); }
+
+  .game-tile{ width:34px; height:34px; border-radius:10px; background:var(--surface-3); display:flex; align-items:center;
+    justify-content:center; color:var(--text); flex:none; }
+  .game-tile svg{ width:17px; height:17px; }
+  .game-tile.lg{ width:44px; height:44px; border-radius:13px; }
+  .game-tile.lg svg{ width:21px; height:21px; }
+
+  ::-webkit-scrollbar{ width:0; height:0; }
+</style>
+</head>
+<body class="mode-mobile">
+
+<!-- SVG ICON DEFS -->
+<svg width="0" height="0" style="position:absolute">
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H17.5a1 1 0 0 0 1-1v-9"/></symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V4Z"/><path d="M7 5H4a1 1 0 0 0-1 1v1a4 4 0 0 0 4 4"/><path d="M17 5h3a1 1 0 0 1 1 1v1a4 4 0 0 1-4 4"/><path d="M12 13v3"/><path d="M9 20h6"/><path d="M10 16.5h4l.5 3.5h-5l.5-3.5Z"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M11 20V4"/><path d="M18 20v-7"/><path d="M3 20h18"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.3 2.9-5.5 5.5-5.5s5.5 2.2 5.5 5.5"/><path d="M15.5 8.7a3 3 0 1 1 0-5.9"/><path d="M17 14.7c2.4.5 4 2.4 4 5.3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6"/></symbol>
+<symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 2s-1.5 3-1.5 5.5c0 1 .6 1.6 1.2 2.2C11 8.8 10 7.5 10 6c-2.4 2-3.5 4.6-3.5 7.2C6.5 17.3 9.4 21 12 21s5.5-3.5 5.5-7.5c0-2.7-1-4.7-2.2-6.3.2 1.6-.5 2.6-1.5 3.3C14.3 8.2 12 5.6 12 2Z"/></symbol>
+<symbol id="i-gamepad" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="10" rx="4"/><path d="M7.5 10v4M5.5 12h4"/><circle cx="15" cy="10.5" r="1"/><circle cx="17.5" cy="13" r="1"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.4a7.6 7.6 0 0 0-1.7 1l-2.3-.9-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.4a7.6 7.6 0 0 0 1.7-1l2.3.9 2-3.4L19.4 13Z"/></symbol>
+<symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h3.5L16 18h4"/><path d="M3 18h3.5L11 12"/><path d="M17 6h3M17 18h3"/><path d="M20 4l0 4M20 20l0-4"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4.5v15l13-7.5-13-7.5Z"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></symbol>
+<symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="15" r="5.2"/><path d="M9.5 10.5 7 3h3l2 6.5M14.5 10.5 17 3h-3l-2 6.5"/><path d="M12 12.3v5.4"/></symbol>
+<symbol id="i-brain" viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3 2.6 2.6 0 0 0-1.5 4.6A2.8 2.8 0 0 0 6 16.6 3 3 0 0 0 9 20"/><path d="M15 4a3 3 0 0 1 3 3 2.6 2.6 0 0 1 1.5 4.6 2.8 2.8 0 0 1-1.5 4.9 3 3 0 0 1-3 3.5"/><path d="M9 4v16M15 4v16M9 8.5h2.2M13 8.5H15M9 13h1.6M13.5 13H15M9 17h2M13 17h2"/></symbol>
+<symbol id="i-football" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8.3 15.5 11l-1.3 4H9.8L8.5 11 12 8.3Z"/><path d="M12 3.5V6M12 18v2.5M4.4 8.3l2.3 1.3M17.3 9.6l2.3-1.3M4.4 15.7l2.3-1.3M17.3 14.4l2.3 1.3"/></symbol>
+<symbol id="i-dumbbell" viewBox="0 0 24 24"><rect x="2.5" y="9" width="3" height="6" rx="1"/><rect x="18.5" y="9" width="3" height="6" rx="1"/><path d="M5.5 12h1.8M16.7 12h1.8"/><rect x="7.3" y="7.5" width="2.4" height="9" rx="1"/><rect x="14.3" y="7.5" width="2.4" height="9" rx="1"/><path d="M9.7 12h4.6"/></symbol>
+<symbol id="i-bird" viewBox="0 0 24 24"><path d="M4 15c2-.3 3.6-1.3 4.6-2.7C6.7 12 5 10.7 5 8.7 5 6.6 7 5 9.3 5c2 0 3.6 1 4.4 2.6.5-.2 1-.3 1.6-.3 2.3 0 4.2 1.7 4.2 3.8 0 .6-.1 1.1-.4 1.6.7.4 1.4 1 1.9 1.7-1 .3-2 .4-2.9.3-1 2.4-3.4 4.3-7.1 4.3C7 19 4.6 17.5 4 15Z"/><circle cx="15.3" cy="9.4" r=".6" fill="currentColor"/></symbol>
+<symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></symbol>
+<symbol id="i-joystick" viewBox="0 0 24 24"><rect x="7" y="13" width="10" height="7" rx="2"/><path d="M12 13V7"/><circle cx="12" cy="5" r="2.4"/></symbol>
+</svg>
+
+<div class="meta-bar">
+  <div class="meta-row">
+    <div class="meta-title">ScoreSquad — UI Redesign <b>Mockup</b> · direction A "Match Console" · icons: line-icon set (Lucide-style) · components styled to shadcn/ui primitives</div>
+    <div class="mode-toggle">
+      <button id="btn-mobile" class="active" onclick="setMode('mobile')">Mobile</button>
+      <button id="btn-desktop" onclick="setMode('desktop')">Desktop</button>
+    </div>
+  </div>
+  <div class="tab-strip" id="tabstrip"></div>
+</div>
+
+<div class="stage">
+
+  <!-- ============ SCREEN: HOME ============ -->
+  <section class="screen active" data-screen="home">
+    <div class="app-frame has-sidebar">
+      <nav class="sidebar">
+        <div class="brand"><div class="logo"><svg class="ic" style="width:16px;height:16px;color:#fff"><use href="#i-trophy"/></svg></div><span>ScoreSquad</span></div>
+        <a class="active" href="#"><svg class="ic"><use href="#i-home"/></svg> Home</a>
+        <a href="#"><svg class="ic"><use href="#i-trophy"/></svg> Tournaments</a>
+        <a href="#"><svg class="ic"><use href="#i-chart"/></svg> Stats</a>
+        <a href="#"><svg class="ic"><use href="#i-users"/></svg> Players</a>
+        <div style="margin-top:auto; padding-top:14px; border-top:1px solid var(--border);">
+          <a href="#"><svg class="ic"><use href="#i-settings"/></svg> Settings</a>
+        </div>
+      </nav>
+      <div class="content-col">
+        <div class="topbar">
+          <div class="topbar-left brand-inline"><div class="logo"><svg class="ic" style="width:14px;height:14px;color:#fff"><use href="#i-trophy"/></svg></div><span>ScoreSquad</span></div>
+          <div class="topbar-left" style="display:none"></div>
+          <div class="topbar-right">
+            <div class="sync-pill"><svg class="ic" style="width:12px;height:12px"><use href="#i-check"/></svg> SYNCED</div>
+            <div class="icon-btn"><svg class="ic"><use href="#i-sun"/></svg></div>
+          </div>
+        </div>
+        <div class="body-pad">
+          <div class="eyebrow">Game night</div>
+          <h1 style="font-size:26px; font-weight:700; margin:4px 0 6px; line-height:1.15;">Ready when you are.</h1>
+          <p style="color:var(--text-dim); font-size:13.5px; margin-bottom:18px;">Companion tracker for local multiplayer scoring</p>
+
+          <button class="btn-primary" style="width:100%; background:linear-gradient(145deg, var(--violet), var(--violet-2)); box-shadow:0 10px 24px -10px rgba(124,111,242,0.6); font-size:15.5px; padding:16px;">
+            <svg class="ic" style="width:16px;height:16px"><use href="#i-play"/></svg> Record Quick Match
+          </button>
+
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <div class="card" style="flex:1; padding:12px; text-align:center;">
+              <div style="font-family:var(--font-display); font-size:19px; font-weight:700; color:var(--gold);">9</div>
+              <div class="eyebrow" style="margin-top:2px;">Matches</div>
+            </div>
+            <div class="card" style="flex:1; padding:12px; text-align:center;">
+              <div style="font-family:var(--font-display); font-size:19px; font-weight:700;">6</div>
+              <div class="eyebrow" style="margin-top:2px;">Games</div>
+            </div>
+            <div class="card" style="flex:1; padding:12px; text-align:center;">
+              <div style="font-family:var(--font-display); font-size:19px; font-weight:700; color:var(--green);">1</div>
+              <div class="eyebrow" style="margin-top:2px;">Live Tourney</div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin:24px 0 10px;">
+            <h3 style="font-size:14.5px; display:flex; align-items:center; gap:7px;"><svg class="ic" style="width:15px;height:15px; color:var(--gold);"><use href="#i-trophy"/></svg> Top Players</h3>
+            <span style="font-size:12px; color:var(--violet); font-weight:600;">View leaderboard →</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="card" style="padding:12px 14px; display:flex; align-items:center; gap:12px; border-color: rgba(242,184,75,0.35); background:linear-gradient(180deg, rgba(242,184,75,0.08), var(--surface));">
+              <div style="width:26px; height:26px; border-radius:8px; background:var(--gold); color:#231702; font-family:var(--font-display); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center;">1</div>
+              <div class="avatar tint-2">B</div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:14px;">Bhavesh</div>
+                <div style="font-size:11.5px; color:var(--text-dim);">7 wins · 78% win rate</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-family:var(--font-display); font-weight:700; font-size:17px; color:var(--gold);">37</div>
+                <div class="eyebrow">pts</div>
+              </div>
+            </div>
+            <div class="card" style="padding:12px 14px; display:flex; align-items:center; gap:12px;">
+              <div style="width:26px; height:26px; border-radius:8px; background:var(--surface-3); color:var(--text-dim); font-family:var(--font-display); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center;">2</div>
+              <div class="avatar tint-1">V</div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:14px;">Vinay</div>
+                <div style="font-size:11.5px; color:var(--text-dim);">6 wins · 67% win rate</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-family:var(--font-display); font-weight:700; font-size:17px;">27</div>
+                <div class="eyebrow">pts</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin:22px 0 10px;">
+            <h3 style="font-size:14.5px; display:flex; align-items:center; gap:7px;"><svg class="ic" style="width:15px;height:15px;"><use href="#i-gamepad"/></svg> Recent Matches</h3>
+            <span style="font-size:12px; color:var(--violet); font-weight:600;">Full history →</span>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+              <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:13.5px;"><svg class="ic" style="width:14px;height:14px; color:var(--text-dim);"><use href="#i-target"/></svg> Kate wala gola</div>
+              <span style="font-size:10px; font-family:var(--font-mono); color:var(--text-faint);">JUL 30</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 10px; border-radius:10px; background:var(--gold-soft); border:1px dashed rgba(242,184,75,0.4); margin-bottom:6px;">
+              <span style="font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;"><span class="avatar xs tint-1" style="margin-right:-8px;">V</span><span class="avatar xs tint-2">B</span> Vinay & Bhavesh</span>
+              <span style="font-family:var(--font-display); font-weight:700; color:var(--gold);">10</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 10px;">
+              <span style="font-size:13px; color:var(--text-dim); display:flex; align-items:center; gap:6px;"><span class="avatar xs tint-5" style="margin-right:-8px;">H</span><span class="avatar xs tint-3">D</span> Harsh & Daksh</span>
+              <span style="font-family:var(--font-display); font-weight:600; color:var(--text-dim);">4</span>
+            </div>
+          </div>
+        </div>
+        <nav class="bottom-nav">
+          <a class="active" href="#"><svg class="ic"><use href="#i-home"/></svg>Home</a>
+          <a href="#"><svg class="ic"><use href="#i-trophy"/></svg>Tourneys</a>
+          <a href="#"><svg class="ic"><use href="#i-chart"/></svg>Stats</a>
+          <a href="#"><svg class="ic"><use href="#i-users"/></svg>Players</a>
+        </nav>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: GAME SELECT ============ -->
+  <section class="screen" data-screen="select">
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left"><div class="back-btn"><svg class="ic" style="width:16px;height:16px"><use href="#i-chev-l"/></svg></div>
+          <div><div class="eyebrow">Step 1 of 3</div><div class="page-title">Pick your games</div></div>
+        </div>
+        <div class="topbar-right"><div class="sync-pill"><svg class="ic" style="width:12px;height:12px"><use href="#i-check"/></svg> SYNCED</div></div>
+      </div>
+      <div class="body-pad">
+        <div style="display:flex; gap:5px; margin-bottom:18px;">
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--violet);"></div>
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--surface-3);"></div>
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--surface-3);"></div>
+        </div>
+        <p style="color:var(--text-dim); font-size:13px; margin-bottom:14px;">Tap to select one or more games for this match. Selected games play back-to-back in one round.</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;" id="gamegrid">
+        </div>
+        <div style="margin-top:20px; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px;">
+          <div>
+            <div style="font-weight:700; font-size:14px;"><span id="gamecount">3</span> games selected</div>
+            <div style="font-size:11.5px; color:var(--text-dim);">Memory card, Football, Sumo wrestling</div>
+          </div>
+          <button class="btn-primary" style="padding:11px 18px; font-size:13px;">Continue <svg class="ic" style="width:14px;height:14px"><use href="#i-chev-r"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: TEAM SELECT ============ -->
+  <section class="screen" data-screen="teams">
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left"><div class="back-btn"><svg class="ic" style="width:16px;height:16px"><use href="#i-chev-l"/></svg></div>
+          <div><div class="eyebrow">Step 2 of 3</div><div class="page-title">Choose participants</div></div>
+        </div>
+        <div class="topbar-right"><div class="sync-pill"><svg class="ic" style="width:12px;height:12px"><use href="#i-check"/></svg> SYNCED</div></div>
+      </div>
+      <div class="body-pad">
+        <div style="display:flex; gap:5px; margin-bottom:16px;">
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--violet);"></div>
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--violet);"></div>
+          <div style="flex:1; height:4px; border-radius:99px; background:var(--surface-3);"></div>
+        </div>
+
+        <div style="display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:3px; margin-bottom:16px;">
+          <div style="flex:1; text-align:center; padding:9px; border-radius:999px; color:var(--text-dim); font-size:12.5px; font-weight:700;">Individual Solo</div>
+          <div style="flex:1; text-align:center; padding:9px; border-radius:999px; background:var(--violet); color:#fff; font-size:12.5px; font-weight:700;">Team Pairs</div>
+        </div>
+
+        <div class="eyebrow" style="margin-bottom:8px;">Saved combos</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+          <div class="card" style="padding:11px 13px; display:flex; align-items:center; gap:10px; border-color:rgba(124,111,242,0.5); background:var(--violet-soft);">
+            <div style="display:flex;">
+              <div class="avatar sm tint-1" style="border:2px solid var(--bg);">V</div>
+              <div class="avatar sm tint-2" style="border:2px solid var(--bg); margin-left:-10px;">B</div>
+            </div>
+            <div style="flex:1; font-weight:700; font-size:13.5px;">Vinay & Bhavesh</div>
+            <div style="width:22px; height:22px; border-radius:7px; background:var(--violet); display:flex; align-items:center; justify-content:center;"><svg class="ic" style="width:13px;height:13px; color:white;"><use href="#i-check"/></svg></div>
+          </div>
+          <div class="card" style="padding:11px 13px; display:flex; align-items:center; gap:10px;">
+            <div style="display:flex;">
+              <div class="avatar sm tint-4" style="border:2px solid var(--bg);">H</div>
+              <div class="avatar sm tint-3" style="border:2px solid var(--bg); margin-left:-10px;">D</div>
+            </div>
+            <div style="flex:1; font-weight:700; font-size:13.5px; color:var(--text-dim);">Harsh & Daksh</div>
+            <div style="width:22px; height:22px; border-radius:7px; border:1.5px solid var(--border);"></div>
+          </div>
+          <div class="card" style="padding:11px 13px; display:flex; align-items:center; gap:10px;">
+            <div style="display:flex;">
+              <div class="avatar sm tint-5" style="border:2px solid var(--bg);">VK</div>
+              <div class="avatar sm tint-1" style="border:2px solid var(--bg); margin-left:-10px;">K</div>
+            </div>
+            <div style="flex:1; font-weight:700; font-size:13.5px; color:var(--text-dim);">Vikash & Keyur</div>
+            <div style="width:22px; height:22px; border-radius:7px; border:1.5px solid var(--border);"></div>
+          </div>
+        </div>
+
+        <button class="btn-ghost" style="width:100%; margin-bottom:16px; border-style:dashed;" onclick="openSheet()"><svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg> New pair</button>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; display:flex; align-items:center; justify-content:space-between;">
+          <div style="font-weight:700; font-size:13.5px;">2 pairs ready</div>
+          <button class="btn-primary" style="padding:11px 18px; font-size:13px;">Start scoring <svg class="ic" style="width:14px;height:14px"><use href="#i-chev-r"/></svg></button>
+        </div>
+      </div>
+
+      <!-- shadcn-style Sheet / Dialog demo -->
+      <div id="sheetOverlay" onclick="closeSheet(event)" style="display:none; position:absolute; inset:0; background:rgba(5,7,11,0.6); backdrop-filter:blur(2px); z-index:40; border-radius:inherit;">
+        <div style="position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-top:1px solid var(--border); border-radius:20px 20px 0 0; padding:8px 18px 20px; animation:sheetUp .22s ease;">
+          <div style="width:36px; height:4px; background:var(--border); border-radius:99px; margin:6px auto 14px;"></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <div style="font-family:var(--font-display); font-weight:700; font-size:15px;">Create team pair</div>
+            <div class="icon-btn" onclick="closeSheet(event)"><svg class="ic" style="width:14px;height:14px"><use href="#i-x"/></svg></div>
+          </div>
+          <div class="eyebrow" style="margin-bottom:6px;">Player 1</div>
+          <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; color:var(--text-dim); font-size:13px;">Select player <svg class="ic" style="width:14px;height:14px"><use href="#i-chev-r"/></svg></div>
+          <div class="eyebrow" style="margin-bottom:6px;">Player 2</div>
+          <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 14px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between; color:var(--text-dim); font-size:13px;">Select player <svg class="ic" style="width:14px;height:14px"><use href="#i-chev-r"/></svg></div>
+          <button class="btn-primary" style="width:100%;" onclick="closeSheet(event)">Save &amp; select pair</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: SCORE CONSOLE (signature) ============ -->
+  <section class="screen" data-screen="score">
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left"><div class="back-btn"><svg class="ic" style="width:16px;height:16px"><use href="#i-chev-l"/></svg></div>
+          <div><div class="eyebrow">Live match console</div><div class="page-title">Quick Match</div></div>
+        </div>
+        <div class="topbar-right"><div class="icon-btn"><svg class="ic" style="width:15px;height:15px"><use href="#i-x"/></svg></div></div>
+      </div>
+      <div class="body-pad" style="padding-top:14px;">
+
+        <!-- game switcher -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+          <div class="icon-btn" onclick="shiftGame(-1)"><svg class="ic" style="width:15px;height:15px"><use href="#i-chev-l"/></svg></div>
+          <div style="text-align:center;">
+            <div class="eyebrow">Game <span id="gnum">1</span> of 3</div>
+            <div style="font-family:var(--font-display); font-weight:700; font-size:16px; display:flex; align-items:center; gap:7px; justify-content:center;"><svg class="ic" style="width:16px;height:16px"><use href="#i-brain" id="giconuse"/></svg><span id="gname">Memory card</span></div>
+          </div>
+          <div class="icon-btn" onclick="shiftGame(1)"><svg class="ic" style="width:15px;height:15px"><use href="#i-chev-r"/></svg></div>
+        </div>
+        <div style="display:flex; gap:5px; justify-content:center; margin-bottom:20px;">
+          <div class="gdot" style="width:6px;height:6px;border-radius:99px;background:var(--gold);"></div>
+          <div class="gdot" style="width:6px;height:6px;border-radius:99px;background:var(--border);"></div>
+          <div class="gdot" style="width:6px;height:6px;border-radius:99px;background:var(--border);"></div>
+        </div>
+
+        <!-- scoreboard -->
+        <div class="card" style="padding:18px; margin-bottom:14px; position:relative; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="flex:1; text-align:center;">
+              <div style="display:flex; justify-content:center; margin-bottom:8px;">
+                <div class="avatar sm tint-1" style="border:2px solid var(--surface);">V</div>
+                <div class="avatar sm tint-2" style="border:2px solid var(--surface); margin-left:-9px;">B</div>
+              </div>
+              <div style="font-weight:700; font-size:13px; margin-bottom:10px;">Vinay & Bhavesh</div>
+              <div style="font-family:var(--font-display); font-size:44px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-0.02em; transition:transform .12s;" id="scoreA">11</div>
+            </div>
+            <div style="width:1px; align-self:stretch; background:var(--border); margin:6px 0;"></div>
+            <div style="flex:1; text-align:center;">
+              <div style="display:flex; justify-content:center; margin-bottom:8px;">
+                <div class="avatar sm tint-4" style="border:2px solid var(--surface);">H</div>
+                <div class="avatar sm tint-3" style="border:2px solid var(--surface); margin-left:-9px;">D</div>
+              </div>
+              <div style="font-weight:700; font-size:13px; margin-bottom:10px;">Harsh & Daksh</div>
+              <div style="font-family:var(--font-display); font-size:44px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-0.02em; color:var(--text-dim);" id="scoreB">11</div>
+            </div>
+          </div>
+          <!-- momentum bar -->
+          <div style="margin-top:16px;">
+            <div style="height:6px; border-radius:99px; background:var(--surface-3); overflow:hidden; display:flex;">
+              <div id="momA" style="background:var(--gold); width:50%; transition:width .25s ease;"></div>
+              <div id="momB" style="background:var(--violet); width:50%; transition:width .25s ease;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px; font-family:var(--font-mono); font-size:10px; color:var(--text-faint); letter-spacing:0.04em;">
+              <span>MOMENTUM</span><span id="momlabel">EVEN</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- controls -->
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <button onclick="score('A',1)" style="width:64px; height:64px; border-radius:50%; background:linear-gradient(160deg, var(--gold), #C98F27); border:none; color:#231702; font-family:var(--font-display); font-size:22px; font-weight:700; cursor:pointer; box-shadow:0 10px 22px -8px rgba(242,184,75,0.55);">+1</button>
+            <div style="display:flex; gap:6px;">
+              <button onclick="score('A',3)" class="chip">+3</button>
+              <button onclick="score('A',5)" class="chip">+5</button>
+              <button onclick="score('A',-1)" class="chip"><svg class="ic" style="width:12px;height:12px"><use href="#i-minus"/></svg></button>
+            </div>
+          </div>
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <button onclick="score('B',1)" style="width:64px; height:64px; border-radius:50%; background:linear-gradient(160deg, var(--violet), var(--violet-2)); border:none; color:white; font-family:var(--font-display); font-size:22px; font-weight:700; cursor:pointer; box-shadow:0 10px 22px -8px rgba(124,111,242,0.55);">+1</button>
+            <div style="display:flex; gap:6px;">
+              <button onclick="score('B',3)" class="chip">+3</button>
+              <button onclick="score('B',5)" class="chip">+5</button>
+              <button onclick="score('B',-1)" class="chip"><svg class="ic" style="width:12px;height:12px"><use href="#i-minus"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-primary" style="width:100%; margin-top:12px; background:var(--surface-2); color:var(--text); border:1px solid var(--border);">
+          <svg class="ic" style="width:15px;height:15px"><use href="#i-check"/></svg> Save game &amp; next
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: TOURNAMENT ============ -->
+  <section class="screen" data-screen="tourney">
+    <div class="app-frame">
+      <div class="topbar">
+        <div class="topbar-left"><div class="back-btn"><svg class="ic" style="width:16px;height:16px"><use href="#i-chev-l"/></svg></div>
+          <div><div class="eyebrow">Ongoing · custom mode</div><div class="page-title">Championship — Jul 30</div></div>
+        </div>
+        <button class="btn-ghost" style="padding:7px 12px; font-size:11.5px; color:var(--red); border-color:rgba(242,102,94,0.4);">End</button>
+      </div>
+      <div class="body-pad">
+        <div class="card" style="padding:14px 16px; margin-bottom:16px; display:flex; align-items:center; gap:14px;">
+          <div style="position:relative; width:46px; height:46px; flex:none;">
+            <svg width="46" height="46" viewBox="0 0 46 46">
+              <circle cx="23" cy="23" r="19" fill="none" stroke="var(--surface-3)" stroke-width="5"/>
+              <circle cx="23" cy="23" r="19" fill="none" stroke="var(--gold)" stroke-width="5" stroke-linecap="round" stroke-dasharray="119.4" stroke-dashoffset="35" transform="rotate(-90 23 23)"/>
+            </svg>
+            <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:10px; font-weight:700;">9/15</div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:13.5px;">Series length: 5 games</div>
+            <div style="font-size:11.5px; color:var(--text-dim);">3 matchups · Team Pairs</div>
+          </div>
+        </div>
+
+        <div class="eyebrow" style="margin-bottom:8px;">Leaderboard</div>
+        <div style="display:flex; flex-direction:column; gap:7px; margin-bottom:20px;">
+          <div class="card" style="padding:10px 13px; display:flex; align-items:center; gap:10px; border-color:rgba(242,184,75,0.35); background:var(--gold-soft);">
+            <div style="width:20px; font-family:var(--font-display); font-weight:700; font-size:12px; color:var(--gold);">1</div>
+            <div style="flex:1; font-weight:700; font-size:13px;">Vikash & Daksh</div>
+            <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">2W–0L</div>
+            <div style="font-family:var(--font-display); font-weight:700; font-size:14px;">20</div>
+          </div>
+          <div class="card" style="padding:10px 13px; display:flex; align-items:center; gap:10px;">
+            <div style="width:20px; font-family:var(--font-display); font-weight:700; font-size:12px; color:var(--text-dim);">2</div>
+            <div style="flex:1; font-weight:700; font-size:13px; color:var(--text-dim);">Harsh & Harmish</div>
+            <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-faint);">1W–1L</div>
+            <div style="font-family:var(--font-display); font-weight:700; font-size:14px; color:var(--text-dim);">12</div>
+          </div>
+        </div>
+
+        <div class="eyebrow" style="margin-bottom:8px;">Matchup series</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="card" style="padding:0; overflow:hidden;">
+            <div onclick="toggleMatchup(this)" style="padding:13px 15px; display:flex; align-items:center; justify-content:between; gap:10px; cursor:pointer;">
+              <div style="flex:1; display:flex; align-items:center; justify-content:space-between;">
+                <span style="font-weight:700; font-size:13px;">Vikash & Daksh</span>
+                <span class="eyebrow">vs</span>
+                <span style="font-weight:700; font-size:13px; color:var(--text-dim);">Harsh & Harmish</span>
+              </div>
+              <svg class="ic chevdown" style="width:15px;height:15px; flex:none; transition:transform .2s;"><use href="#i-chev-r"/></svg>
+            </div>
+            <div style="padding:0 15px 14px; display:flex; align-items:center; gap:8px;">
+              <div style="flex:1; height:5px; background:var(--surface-3); border-radius:99px; overflow:hidden; display:flex;">
+                <div style="width:40%; background:var(--gold);"></div>
+              </div>
+              <span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-faint);">2/5 played</span>
+            </div>
+            <div class="matchup-body" style="display:none; border-top:1px solid var(--border); padding:14px 15px; background:var(--surface-2);">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <span style="font-family:var(--font-display); font-weight:700; font-size:24px;">11</span>
+                <span class="eyebrow">game 3</span>
+                <span style="font-family:var(--font-display); font-weight:700; font-size:24px; color:var(--text-dim);">7</span>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <button class="chip" style="flex:1;">+1 left</button>
+                <button class="chip" style="flex:1;">+1 right</button>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="padding:13px 15px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-weight:700; font-size:13px;">Vikash & Daksh</span>
+              <span class="eyebrow">vs</span>
+              <span style="font-weight:700; font-size:13px; color:var(--text-dim);">Vinay & Bhavesh</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="flex:1; height:5px; background:var(--surface-3); border-radius:99px; overflow:hidden; display:flex;">
+                <div style="width:80%; background:var(--gold);"></div>
+              </div>
+              <span style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-faint);">4/5 played</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: LEADERBOARD / STATS ============ -->
+  <section class="screen" data-screen="stats">
+    <div class="app-frame has-sidebar">
+      <nav class="sidebar">
+        <div class="brand"><div class="logo"><svg class="ic" style="width:16px;height:16px;color:#fff"><use href="#i-trophy"/></svg></div><span>ScoreSquad</span></div>
+        <a href="#"><svg class="ic"><use href="#i-home"/></svg> Home</a>
+        <a href="#"><svg class="ic"><use href="#i-trophy"/></svg> Tournaments</a>
+        <a class="active" href="#"><svg class="ic"><use href="#i-chart"/></svg> Stats</a>
+        <a href="#"><svg class="ic"><use href="#i-users"/></svg> Players</a>
+      </nav>
+      <div class="content-col">
+        <div class="topbar">
+          <div class="topbar-left brand-inline"><div class="logo"><svg class="ic" style="width:14px;height:14px;color:#fff"><use href="#i-trophy"/></svg></div><span>ScoreSquad</span></div>
+          <div class="topbar-right"><div class="sync-pill"><svg class="ic" style="width:12px;height:12px"><use href="#i-check"/></svg> SYNCED</div></div>
+        </div>
+        <div class="body-pad">
+          <div style="display:flex; gap:6px; margin-bottom:16px;">
+            <div style="padding:9px 15px; border-radius:999px; background:var(--surface-2); border:1px solid var(--border); font-size:12.5px; font-weight:700; color:var(--text-dim);">Individual</div>
+            <div style="padding:9px 15px; border-radius:999px; background:var(--violet); font-size:12.5px; font-weight:700;">Team Pairs</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="card" style="padding:12px 14px; display:flex; align-items:center; gap:12px; border-color:rgba(242,184,75,0.4); background:var(--gold-soft);">
+              <svg class="ic" style="width:18px;height:18px; color:var(--gold);"><use href="#i-medal"/></svg>
+              <div style="flex:1;">
+                <div style="font-weight:700; font-size:13.5px;">Vinay & Bhavesh & Keyur</div>
+                <div style="font-size:11px; color:var(--text-dim);">4 wins · 5 played · 80% WR</div>
+              </div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:17px; color:var(--gold);">45</div>
+            </div>
+            <div class="card" style="padding:12px 14px; display:flex; align-items:center; gap:12px;">
+              <div style="width:18px; text-align:center; font-family:var(--font-mono); color:var(--text-faint); font-size:12px;">2</div>
+              <div style="flex:1;">
+                <div style="font-weight:700; font-size:13.5px;">Harsh & Vikash & Daksh</div>
+                <div style="font-size:11px; color:var(--text-dim);">2 wins · 5 played · 40% WR</div>
+              </div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:17px;">25</div>
+            </div>
+            <div class="card" style="padding:12px 14px; display:flex; align-items:center; gap:12px;">
+              <div style="width:18px; text-align:center; font-family:var(--font-mono); color:var(--text-faint); font-size:12px;">3</div>
+              <div style="flex:1;">
+                <div style="font-weight:700; font-size:13.5px;">Vinay & Bhavesh</div>
+                <div style="font-size:11px; color:var(--text-dim);">2 wins · 3 played · 67% WR</div>
+              </div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:17px;">23</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+<script>
+  function setMode(m){
+    document.body.classList.remove('mode-mobile','mode-desktop');
+    document.body.classList.add('mode-'+m);
+    document.getElementById('btn-mobile').classList.toggle('active', m==='mobile');
+    document.getElementById('btn-desktop').classList.toggle('active', m==='desktop');
+  }
+
+  // ---- tab strip / screen switching ----
+  const screens = [
+    {id:'home', label:'① Home'},
+    {id:'select', label:'② Quick Match · Game select'},
+    {id:'teams', label:'③ Quick Match · Team select'},
+    {id:'score', label:'④ Quick Match · Score console ★'},
+    {id:'tourney', label:'⑤ Tournament dashboard'},
+    {id:'stats', label:'⑥ Leaderboard / Stats'},
+  ];
+  const strip = document.getElementById('tabstrip');
+  screens.forEach((s,i)=>{
+    const b = document.createElement('button');
+    b.textContent = s.label;
+    if(i===0) b.classList.add('active');
+    b.onclick = ()=> showScreen(s.id, b);
+    strip.appendChild(b);
+  });
+  function showScreen(id, btnEl){
+    document.querySelectorAll('.screen').forEach(el=> el.classList.toggle('active', el.dataset.screen===id));
+    document.querySelectorAll('.tab-strip button').forEach(el=> el.classList.remove('active'));
+    btnEl.classList.add('active');
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  // ---- game select grid (demo data) ----
+  const games = [
+    {icon:'i-brain', name:'Memory card'},
+    {icon:'i-football', name:'Football'},
+    {icon:'i-target', name:'Kate wala gola'},
+    {icon:'i-dumbbell', name:'Sumo wrestling'},
+    {icon:'i-joystick', name:'Multi Pinball'},
+    {icon:'i-bird', name:'Chidiya udd'},
+  ];
+  const selected = new Set([0,1,3]);
+  const grid = document.getElementById('gamegrid');
+  function renderGrid(){
+    grid.innerHTML = '';
+    games.forEach((g,i)=>{
+      const on = selected.has(i);
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.style.cssText = `padding:16px 10px; text-align:center; cursor:pointer; position:relative; ${on ? 'border-color:rgba(124,111,242,0.55); background:var(--violet-soft);' : ''}`;
+      d.innerHTML = `<div class="game-tile lg" style="margin:0 auto 8px;"><svg class="ic"><use href="#${g.icon}"/></svg></div><div style="font-weight:600; font-size:12.5px;">${g.name}</div>
+        ${on ? '<div style="position:absolute; top:8px; right:8px; width:18px; height:18px; border-radius:6px; background:var(--violet); display:flex; align-items:center; justify-content:center;"><svg class="ic" style="width:11px;height:11px;color:white"><use href="#i-check"/></svg></div>' : '<div style="position:absolute; top:8px; right:8px; width:18px; height:18px; border-radius:6px; border:1.5px solid var(--border);"></div>'}`;
+      d.onclick = ()=>{ selected.has(i) ? selected.delete(i) : selected.add(i); renderGrid(); document.getElementById('gamecount').textContent = selected.size; };
+      grid.appendChild(d);
+    });
+  }
+  renderGrid();
+
+  // ---- score console ----
+  let sA = 11, sB = 11;
+  const gameList = [
+    {icon:'i-brain', name:'Memory card'},
+    {icon:'i-football', name:'Football'},
+    {icon:'i-target', name:'Kate wala gola'},
+  ];
+  let gIdx = 0;
+  function score(side, delta){
+    if(side==='A') sA = Math.max(0, sA+delta); else sB = Math.max(0, sB+delta);
+    document.getElementById('scoreA').textContent = sA;
+    document.getElementById('scoreB').textContent = sB;
+    const el = document.getElementById('score'+side);
+    el.style.transform = 'scale(1.18)';
+    setTimeout(()=> el.style.transform = 'scale(1)', 130);
+    const total = sA + sB || 1;
+    const pA = Math.round((sA/total)*100);
+    document.getElementById('momA').style.width = pA + '%';
+    document.getElementById('momB').style.width = (100-pA) + '%';
+    document.getElementById('momlabel').textContent = pA===50 ? 'EVEN' : (pA>50 ? 'VINAY & BHAVESH LEAD' : 'HARSH & DAKSH LEAD');
+  }
+  function shiftGame(dir){
+    gIdx = (gIdx + dir + gameList.length) % gameList.length;
+    document.getElementById('gnum').textContent = gIdx+1;
+    document.getElementById('gname').textContent = gameList[gIdx].name;
+    document.getElementById('giconuse').setAttribute('href', '#'+gameList[gIdx].icon);
+    document.querySelectorAll('.gdot').forEach((d,i)=> d.style.background = i===gIdx ? 'var(--gold)' : 'var(--border)');
+  }
+
+  // ---- sheet / dialog demo ----
+  function openSheet(){ document.getElementById('sheetOverlay').style.display = 'block'; }
+  function closeSheet(e){ if(e) e.stopPropagation(); document.getElementById('sheetOverlay').style.display = 'none'; }
+
+  // ---- tournament matchup accordion ----
+  function toggleMatchup(headerEl){
+    const body = headerEl.parentElement.querySelector('.matchup-body');
+    const chev = headerEl.querySelector('.chevdown');
+    const open = body.style.display === 'block';
+    body.style.display = open ? 'none' : 'block';
+    chev.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+  }
+</script>
+</body>
+</html>

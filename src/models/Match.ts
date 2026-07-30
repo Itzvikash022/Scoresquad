@@ -3,7 +3,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface IMatch {
   _id: string;
   date: Date;
-  session?: string; // Reference to Session ID
+  roundId?: string; // Reference to the Round ID
   game: string; // Reference to Game ID
   matchType: "Solo" | "Free For All" | "Team Match";
   players: string[]; // References to Player IDs
@@ -20,7 +20,7 @@ const MatchSchema: Schema<IMatch> = new Schema(
   {
     _id: { type: String, required: true },
     date: { type: Date, default: Date.now },
-    session: { type: String, ref: "Session" },
+    roundId: { type: String },
     game: { type: String, ref: "Game", required: true },
     matchType: {
       type: String,

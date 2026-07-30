@@ -1,11 +1,20 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Search, Trash2, Settings, Download, Upload, HelpCircle, FileText } from "lucide-react";
-import { Button } from "@/components/ui/Buttons";
-import { Card, PlayerCard, GameCard } from "@/components/ui/Cards";
-import { BottomSheet } from "@/components/ui/Dialogs";
+import { Plus, Search, Trash2, Settings, Download, Upload, HelpCircle, FileText, UserPlus, Gamepad2, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/Toast";
+import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
+import { getGameIcon as getIcon } from "@/lib/iconMap";
 import dataService, { ClientPlayer, ClientGame } from "@/lib/dataService";
 
 const EMOJIS = ["👤", "🐍", "🦌", "🦁", "🦊", "🐻", "🐼", "🐨", "🐯", "🤖", "👻", "👾", "🧙", "🐱", "🐶", "🦄"];
@@ -23,9 +32,9 @@ export default function ManagementPage() {
   const [playerSearch, setPlayerSearch] = useState("");
   const [gameSearch, setGameSearch] = useState("");
 
-  // Sheet states
-  const [isPlayerSheetOpen, setIsPlayerSheetOpen] = useState(false);
-  const [isGameSheetOpen, setIsGameSheetOpen] = useState(false);
+  // Dialog open triggers
+  const [isPlayerDialogOpen, setIsPlayerDialogOpen] = useState(false);
+  const [isGameDialogOpen, setIsGameDialogOpen] = useState(false);
 
   // Form states
   const [playerName, setPlayerName] = useState("");
@@ -53,7 +62,6 @@ export default function ManagementPage() {
       return;
     }
 
-    // Check duplicate name
     if (players.some((p) => p.name.toLowerCase() === playerName.trim().toLowerCase())) {
       showToast("Player with this name already exists", "error");
       return;
@@ -67,11 +75,10 @@ export default function ManagementPage() {
       });
       showToast(`Player ${playerName} created!`, "success");
       
-      // Reset & close
       setPlayerName("");
       setPlayerNickname("");
       setPlayerAvatar("👤");
-      setIsPlayerSheetOpen(false);
+      setIsPlayerDialogOpen(false);
       loadData();
     } catch (err: any) {
       showToast(err.message || "Failed to create player", "error");
@@ -79,7 +86,7 @@ export default function ManagementPage() {
   };
 
   const handleDeletePlayer = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete ${name}? This cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete ${name}? All statistics for this player will be removed.`)) {
       dataService.deletePlayer(id);
       showToast(`Player ${name} deleted`, "info");
       loadData();
@@ -93,7 +100,6 @@ export default function ManagementPage() {
       return;
     }
 
-    // Check duplicate (only if creating new, or if name changed)
     const isDuplicate = games.some(
       (g) =>
         g.name.toLowerCase() === gameName.trim().toLowerCase() && g._id !== editingGameId
@@ -115,7 +121,7 @@ export default function ManagementPage() {
       setGameName("");
       setGameIcon("🎮");
       setEditingGameId(null);
-      setIsGameSheetOpen(false);
+      setIsGameDialogOpen(false);
       loadData();
     } catch (err: any) {
       showToast(err.message || "Failed to save game", "error");
@@ -126,30 +132,26 @@ export default function ManagementPage() {
     setEditingGameId(id);
     setGameName(name);
     setGameIcon(icon);
-    setIsGameSheetOpen(true);
+    setIsGameDialogOpen(true);
   };
 
   const handleDeleteGame = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete ${name}? This cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete ${name}? All local logs for this game will be cleared.`)) {
       dataService.deleteGame(id);
       showToast(`Game ${name} deleted`, "info");
       loadData();
     }
   };
 
-
-
-  // Import / Export
   const handleExport = () => {
     try {
       const dataStr = dataService.exportData();
       const dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(dataStr);
-      
-      const exportFileDefaultName = `scoresquad_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      const filename = `scoresquad_backup_${new Date().toISOString().slice(0, 10)}.json`;
       
       const linkElement = document.createElement("a");
       linkElement.setAttribute("href", dataUri);
-      linkElement.setAttribute("download", exportFileDefaultName);
+      linkElement.setAttribute("download", filename);
       linkElement.click();
       showToast("Backup exported successfully!", "success");
     } catch {
@@ -176,7 +178,15 @@ export default function ManagementPage() {
     }
   };
 
-  // Filtering
+  const handleFactoryReset = () => {
+    if (window.confirm("WARNING: This will delete ALL local scores, matches, players, and configurations. This action is final. Proceed?")) {
+      localStorage.clear();
+      showToast("Factory reset complete.", "info");
+      window.location.reload();
+    }
+  };
+
+  // Filter lists
   const filteredPlayers = players.filter(
     (p) =>
       p.name.toLowerCase().includes(playerSearch.toLowerCase()) ||
@@ -188,563 +198,330 @@ export default function ManagementPage() {
   );
 
   return (
-    <div className="management-view">
-      {/* Sub tabs header */}
-      <div className="management-tabs">
-        <button className={`tab-btn ${activeTab === "players" ? "active" : ""}`} onClick={() => setActiveTab("players")}>
+    <div className="flex flex-col gap-5 max-w-[800px] mx-auto">
+      {/* Tab navigation headers */}
+      <div className="flex bg-surface border border-border rounded-full p-[3px] w-full">
+        <button
+          onClick={() => setActiveTab("players")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "players" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Players
         </button>
-        <button className={`tab-btn ${activeTab === "games" ? "active" : ""}`} onClick={() => setActiveTab("games")}>
+        <button
+          onClick={() => setActiveTab("games")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "games" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Games
         </button>
-        <button className={`tab-btn ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>
+        <button
+          onClick={() => setActiveTab("settings")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "settings" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Settings
         </button>
       </div>
 
-      {/* Players Section */}
+      {/* 1. PLAYERS SECTION */}
       {activeTab === "players" && (
-        <div className="tab-panel">
-          <div className="search-bar-row">
-            <div className="search-input-wrapper">
-              <Search size={16} className="search-icon" />
+        <div className="flex flex-col gap-4 fade-in">
+          {/* Search and Trigger row */}
+          <div className="flex gap-2.5 items-center">
+            <div className="flex-1 flex items-center gap-2 bg-surface border border-border rounded-md px-3 h-11">
+              <Search className="h-4.5 w-4.5 text-text-dim shrink-0" />
               <input
                 type="text"
                 placeholder="Search players..."
                 value={playerSearch}
                 onChange={(e) => setPlayerSearch(e.target.value)}
-                className="search-input"
+                className="w-full bg-transparent text-[13.5px] text-text outline-none"
               />
             </div>
-            <Button size="md" onClick={() => setIsPlayerSheetOpen(true)}>
-              <Plus size={18} /> Add
-            </Button>
-          </div>
 
-          <div className="players-list-scroll">
-            {filteredPlayers.length > 0 ? (
-              filteredPlayers.map((p) => (
-                <div key={p._id} className="player-row-item">
-                  <div className="player-card-container">
-                    <PlayerCard
-                      name={p.name}
-                      nickname={p.nickname}
-                      avatar={p.avatar}
-                      wins={p.wins}
-                      losses={p.losses}
-                      winRate={p.winRate}
-                      points={p.totalPoints}
-                      recentForm={p.recentForm}
+            <Dialog open={isPlayerDialogOpen} onOpenChange={setIsPlayerDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="h-11 bg-primary text-white hover:bg-primary-hover font-bold px-4 flex items-center gap-1.5 shrink-0">
+                  <UserPlus className="h-4.5 w-4.5" /> Add Player
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-surface border-border sm:max-w-[420px] rounded-xl p-6">
+                <DialogHeader className="mb-4">
+                  <DialogTitle className="font-display font-bold text-[18px] text-text">
+                    Create New Player
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleAddPlayer} className="flex flex-col gap-4">
+                  <div>
+                    <span className="mono-label text-text-dim block mb-1">Name</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Viktor"
+                      value={playerName}
+                      onChange={(e) => setPlayerName(e.target.value)}
+                      className="w-full h-11 bg-surface-2 border border-border rounded-md px-3 text-[14px] text-text font-semibold outline-none focus:ring-1 focus:ring-primary"
+                      maxLength={15}
+                      required
                     />
                   </div>
-                  <button className="delete-row-btn" onClick={() => handleDeletePlayer(p._id, p.name)}>
-                    <Trash2 size={16} />
+                  <div>
+                    <span className="mono-label text-text-dim block mb-1">Nickname (optional)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Viper"
+                      value={playerNickname}
+                      onChange={(e) => setPlayerNickname(e.target.value)}
+                      className="w-full h-11 bg-surface-2 border border-border rounded-md px-3 text-[14px] text-text font-semibold outline-none focus:ring-1 focus:ring-primary"
+                      maxLength={15}
+                    />
+                  </div>
+                  <div>
+                    <span className="mono-label text-text-dim block mb-1.5">Select Avatar</span>
+                    <div className="grid grid-cols-6 gap-2">
+                      {EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={`h-11 bg-surface-2 border border-border rounded-md text-[18px] flex items-center justify-center cursor-pointer transition-all hover:bg-surface-3 ${
+                            playerAvatar === emoji ? "border-primary/60 bg-[#7C6FF2]/10" : ""
+                          }`}
+                          onClick={() => setPlayerAvatar(emoji)}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full mt-2 py-6 bg-primary text-white hover:bg-primary-hover font-bold">
+                    Save Player Profile
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* List items */}
+          <div className="flex flex-col gap-2.5">
+            {filteredPlayers.length > 0 ? (
+              filteredPlayers.map((p) => (
+                <Card key={p._id} className="p-3 border border-border bg-surface rounded-xl flex flex-row items-center gap-3.5">
+                  <PlayerAvatar id={p._id} name={p.name} size="sm" />
+                  <div className="flex-grow min-w-0">
+                    <div className="font-bold text-[14.5px] text-text truncate flex items-center gap-1.5">
+                      {p.name}
+                      {p.nickname && <span className="text-[11.5px] font-semibold text-accent font-mono">"{p.nickname}"</span>}
+                    </div>
+                    <div className="text-[12.5px] text-text-dim mt-0.5">
+                      {p.wins} wins · {p.losses} losses · WR {p.winRate.toFixed(0)}%
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeletePlayer(p._id, p.name)}
+                    className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-danger hover:text-red transition-all cursor-pointer flex items-center justify-center focus:outline-none"
+                    title="Delete Player"
+                  >
+                    <Trash2 className="h-4.5 w-4.5" />
                   </button>
-                </div>
+                </Card>
               ))
             ) : (
-              <div className="empty-state-box">
-                <p>No players match your search.</p>
+              <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50 text-[13.5px]">
+                No players match your search criteria.
               </div>
             )}
           </div>
-
-          {/* Add Player Bottom Drawer */}
-          <BottomSheet isOpen={isPlayerSheetOpen} onClose={() => setIsPlayerSheetOpen(false)} title="Create New Player">
-            <form onSubmit={handleAddPlayer} className="drawer-form">
-              <div className="form-group">
-                <label className="form-label-el">Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Viktor"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  className="form-input-el"
-                  maxLength={15}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label-el">Nickname (optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Viper"
-                  value={playerNickname}
-                  onChange={(e) => setPlayerNickname(e.target.value)}
-                  className="form-input-el"
-                  maxLength={15}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label-el">Select Avatar</label>
-                <div className="avatar-grid">
-                  {EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className={`avatar-selection-btn ${playerAvatar === emoji ? "selected" : ""}`}
-                      onClick={() => setPlayerAvatar(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="form-submit-block">
-                <Button type="submit" fullWidth size="lg">
-                  Save Player Profile
-                </Button>
-              </div>
-            </form>
-          </BottomSheet>
         </div>
       )}
 
-      {/* Games Section */}
+      {/* 2. GAMES CATALOG SECTION */}
       {activeTab === "games" && (
-        <div className="tab-panel">
-          <div className="search-bar-row">
-            <div className="search-input-wrapper">
-              <Search size={16} className="search-icon" />
+        <div className="flex flex-col gap-4 fade-in">
+          {/* Search and trigger row */}
+          <div className="flex gap-2.5 items-center">
+            <div className="flex-1 flex items-center gap-2 bg-surface border border-border rounded-md px-3 h-11">
+              <Search className="h-4.5 w-4.5 text-text-dim shrink-0" />
               <input
                 type="text"
                 placeholder="Search games..."
                 value={gameSearch}
                 onChange={(e) => setGameSearch(e.target.value)}
-                className="search-input"
+                className="w-full bg-transparent text-[13.5px] text-text outline-none"
               />
             </div>
-            <Button size="md" onClick={() => setIsGameSheetOpen(true)}>
-              <Plus size={18} /> Add
-            </Button>
-          </div>
 
-          <div className="games-list-scroll">
-            {filteredGames.length > 0 ? (
-              filteredGames.map((g) => (
-                <div key={g._id} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <div style={{ flex: 1 }}>
-                    <GameCard
-                      name={g.name}
-                      icon={g.icon}
-                      totalMatches={g.totalMatchesPlayed}
+            <Dialog open={isGameDialogOpen} onOpenChange={(open) => {
+              setIsGameDialogOpen(open);
+              if (!open) {
+                setEditingGameId(null);
+                setGameName("");
+                setGameIcon("🎮");
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button className="h-11 bg-primary text-white hover:bg-primary-hover font-bold px-4 flex items-center gap-1.5 shrink-0">
+                  <Plus className="h-4.5 w-4.5" /> Add Game
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-surface border-border sm:max-w-[420px] rounded-xl p-6">
+                <DialogHeader className="mb-4">
+                  <DialogTitle className="font-display font-bold text-[18px] text-text">
+                    {editingGameId ? "Edit Game" : "Add Custom Game"}
+                  </DialogTitle>
+                </DialogHeader>
+
+                <form onSubmit={handleAddGame} className="flex flex-col gap-4">
+                  <div>
+                    <span className="mono-label text-text-dim block mb-1">Game Name</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. Mario Kart"
+                      value={gameName}
+                      onChange={(e) => setGameName(e.target.value)}
+                      className="w-full h-11 bg-surface-2 border border-border rounded-md px-3 text-[14px] text-text font-semibold outline-none focus:ring-1 focus:ring-primary"
+                      maxLength={30}
+                      required
                     />
                   </div>
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <button
-                      type="button"
-                      onClick={() => handleEditGame(g._id, g.name, g.icon)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "var(--rounded-default)",
-                        border: "1px solid var(--outline-variant)",
-                        background: "var(--surface-container-low)",
-                        color: "var(--on-surface)",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteGame(g._id, g.name)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "var(--rounded-default)",
-                        border: "1px solid var(--outline-variant)",
-                        background: "var(--surface-container-low)",
-                        color: "var(--medium-grey)",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                      }}
-                    >
-                      Delete
-                    </button>
+                  <div>
+                    <span className="mono-label text-text-dim block mb-1.5">Select Game Icon</span>
+                    <div className="grid grid-cols-6 gap-2">
+                      {GAME_EMOJIS.map((emoji) => {
+                        const IconComponent = getIcon(emoji);
+                        return (
+                          <button
+                            key={emoji}
+                            type="button"
+                            className={`h-11 bg-surface-2 border border-border rounded-md flex items-center justify-center cursor-pointer transition-all hover:bg-surface-3 ${
+                              gameIcon === emoji ? "border-primary/60 bg-[#7C6FF2]/10 text-primary" : "text-text-dim"
+                            }`}
+                            onClick={() => setGameIcon(emoji)}
+                          >
+                            <IconComponent className="h-[18px] w-[18px]" />
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))
+                  <Button type="submit" className="w-full mt-2 py-6 bg-primary text-white hover:bg-primary-hover font-bold">
+                    {editingGameId ? "Update Game" : "Add Game to Catalog"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* List items */}
+          <div className="flex flex-col gap-2.5">
+            {filteredGames.length > 0 ? (
+              filteredGames.map((g) => {
+                const IconComponent = getIcon(g.icon);
+                return (
+                  <Card key={g._id} className="p-3 border border-border bg-surface rounded-xl flex flex-row items-center gap-3.5">
+                    <span className="w-9 h-9 bg-surface-3 border border-border/40 rounded-lg flex items-center justify-center text-text">
+                      <IconComponent className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="flex-grow min-w-0">
+                      <div className="font-bold text-[14.5px] text-text truncate">{g.name}</div>
+                      <div className="text-[12px] text-text-dim mt-0.5">
+                        {g.totalMatchesPlayed} match{g.totalMatchesPlayed === 1 ? "" : "es"} played
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => handleEditGame(g._id, g.name, g.icon)}
+                        className="border-border bg-surface-2 hover:bg-surface-3 text-[11.5px] font-semibold py-3.5 px-3"
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        onClick={() => handleDeleteGame(g._id, g.name)}
+                        className="border-border bg-surface-2 hover:bg-surface-3 text-text-dim text-[11.5px] font-semibold py-3.5 px-3"
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              })
             ) : (
-              <div className="empty-state-box">
-                <p>No games match your search.</p>
+              <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50 text-[13.5px]">
+                No games match your search criteria.
               </div>
             )}
           </div>
-
-          {/* Add Game Drawer */}
-          <BottomSheet isOpen={isGameSheetOpen} onClose={() => { setIsGameSheetOpen(false); setEditingGameId(null); setGameName(""); setGameIcon("🎮"); }} title={editingGameId ? "Edit Game" : "Add Custom Game"}>
-            <form onSubmit={(e) => { e.preventDefault(); handleAddGame(e); }} className="drawer-game-form">
-              <div className="form-group">
-                <label className="form-label-el">Game Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Mario Kart"
-                  value={gameName}
-                  onChange={(e) => setGameName(e.target.value)}
-                  className="form-input-el"
-                  maxLength={30}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label-el">Select Game Icon</label>
-                <div className="avatar-grid">
-                  {GAME_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className={`avatar-selection-btn ${gameIcon === emoji ? "selected" : ""}`}
-                      onClick={() => setGameIcon(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-submit-block">
-                <Button type="submit" fullWidth size="lg">
-                  {editingGameId ? "Update Game" : "Add Game to Catalog"}
-                </Button>
-              </div>
-            </form>
-          </BottomSheet>
         </div>
       )}
 
-      {/* Settings Section */}
+      {/* 3. SETTINGS & APP INFO SECTION */}
       {activeTab === "settings" && (
-        <div className="tab-panel">
-          <div className="settings-container">
-            <h2 className="settings-section-title">Data Backup & Sync</h2>
-            
-            <Card className="settings-option-card">
-              <div className="option-row">
-                <div className="option-info">
-                  <h3>Export Local Backup</h3>
-                  <p>Download all scores, profiles, and history as a JSON file.</p>
-                </div>
-                <Button size="md" variant="outline" onClick={handleExport}>
-                  <Download size={16} /> Export
-                </Button>
-              </div>
-            </Card>
+        <div className="flex flex-col gap-4 fade-in">
+          <h2 className="mono-label text-text-faint text-[10.5px] uppercase mt-2">Data Backup &amp; Sync</h2>
+          
+          <Card className="p-4 border-border bg-surface rounded-xl flex flex-row items-center justify-between">
+            <div className="flex flex-col gap-1 pr-4">
+              <h3 className="font-bold text-[14.5px] text-text">Export Local Backup</h3>
+              <p className="text-[12px] text-text-dim leading-relaxed">
+                Download all scores, profiles, and history as a JSON file.
+              </p>
+            </div>
+            <Button variant="outline" onClick={handleExport} className="border-border bg-surface-2 hover:bg-surface-3 font-semibold text-[13px] flex items-center gap-1.5 py-4.5 px-4 shrink-0">
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          </Card>
 
-            <Card className="settings-option-card">
-              <div className="option-row">
-                <div className="option-info">
-                  <h3>Restore Backup</h3>
-                  <p>Upload a previously exported JSON file to restore app data.</p>
-                </div>
-                <div className="upload-btn-wrapper">
-                  <Button size="md" variant="outline">
-                    <Upload size={16} /> Import
-                  </Button>
-                  <input type="file" accept=".json" onChange={handleImport} className="file-input-hidden" />
-                </div>
-              </div>
-            </Card>
+          <Card className="p-4 border-border bg-surface rounded-xl flex flex-row items-center justify-between">
+            <div className="flex flex-col gap-1 pr-4">
+              <h3 className="font-bold text-[14.5px] text-text">Restore Backup</h3>
+              <p className="text-[12px] text-text-dim leading-relaxed">
+                Upload a previously exported JSON file to restore app data.
+              </p>
+            </div>
+            <div className="relative overflow-hidden inline-block shrink-0">
+              <Button variant="outline" className="border-border bg-surface-2 hover:bg-surface-3 font-semibold text-[13px] flex items-center gap-1.5 py-4.5 px-4">
+                <Upload className="h-4 w-4" /> Import
+              </Button>
+              <input type="file" accept=".json" onChange={handleImport} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+            </div>
+          </Card>
 
-            <h2 className="settings-section-title danger-text">Factory Reset</h2>
+          <h2 className="mono-label text-danger text-[10.5px] uppercase mt-3">Danger Zone</h2>
+          <Card className="p-4 border-danger/35 bg-danger/[0.03] rounded-xl flex flex-row items-center justify-between">
+            <div className="flex flex-col gap-1 pr-4">
+              <h3 className="font-bold text-[14.5px] text-text">Factory Reset</h3>
+              <p className="text-[12px] text-text-dim leading-relaxed">
+                Wipe all players, games catalog, and scores locally. This is irreversible.
+              </p>
+            </div>
+            <Button variant="destructive" onClick={handleFactoryReset} className="font-bold text-[13px] py-4.5 px-4 shrink-0">
+              Factory Reset
+            </Button>
+          </Card>
 
-
-            <h2 className="settings-section-title">App Info</h2>
-            <div className="app-info-block">
-              <div className="info-row">
-                <FileText size={16} className="info-icon" />
-                <span>Version 1.0.0 (Production PWA)</span>
-              </div>
-              <div className="info-row">
-                <HelpCircle size={16} className="info-icon" />
-                <span>Supports offline game sessions and MongoDB synchronization.</span>
-              </div>
+          <h2 className="mono-label text-text-faint text-[10.5px] uppercase mt-3">App Info</h2>
+          <div className="p-4 bg-surface-2 border border-border/40 rounded-xl flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-[12.5px] text-text-dim">
+              <FileText className="h-4.5 w-4.5 text-text-faint" />
+              <span>Version 1.0.0 (Production PWA)</span>
+            </div>
+            <div className="flex items-start gap-2 text-[12.5px] text-text-dim leading-relaxed">
+              <HelpCircle className="h-4.5 w-4.5 text-text-faint mt-0.5 shrink-0" />
+              <span>Supports offline game sessions and MongoDB synchronization.</span>
             </div>
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .management-view {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-md);
-        }
-        .management-tabs {
-          display: flex;
-          background-color: var(--surface-container-high);
-          padding: 4px;
-          border-radius: var(--rounded-md);
-          width: 100%;
-        }
-        .tab-btn {
-          flex: 1;
-          border: none;
-          background: none;
-          padding: 10px 0;
-          font-family: 'Outfit', sans-serif;
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--on-surface-variant);
-          border-radius: var(--rounded-default);
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-        .tab-btn.active {
-          background-color: var(--background);
-          color: var(--primary-container);
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        }
-        :global([data-theme="dark"]) .tab-btn.active {
-          color: var(--primary);
-        }
-        .tab-panel {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-sm);
-        }
-        .search-bar-row {
-          display: flex;
-          gap: var(--spacing-xs);
-          align-items: center;
-        }
-        .search-input-wrapper {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background-color: var(--surface-container-lowest);
-          border: 1px solid var(--outline-variant);
-          border-radius: var(--rounded-default);
-          padding: 0 12px;
-          height: 48px;
-        }
-        :global([data-theme="dark"]) .search-input-wrapper {
-          background-color: var(--surface);
-        }
-        .search-icon {
-          color: var(--medium-grey);
-        }
-        .search-input {
-          width: 100%;
-          border: none;
-          background: none;
-          outline: none;
-          font-family: 'Outfit', sans-serif;
-          font-size: 14px;
-          color: var(--on-surface);
-        }
-        .players-list-scroll,
-        .games-list-scroll {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-xs);
-        }
-        .player-row-item {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          width: 100%;
-        }
-        .player-card-container {
-          flex: 1;
-        }
-        .delete-row-btn {
-          border: 1px solid var(--outline-variant);
-          background-color: var(--surface-container-low);
-          color: var(--error);
-          width: 44px;
-          height: 44px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: var(--rounded-default);
-          cursor: pointer;
-          transition: background-color 0.15s;
-        }
-        .delete-row-btn:active {
-          background-color: var(--error-container);
-        }
-        .empty-state-box {
-          text-align: center;
-          padding: var(--spacing-lg);
-          background-color: var(--surface-container-low);
-          border-radius: var(--rounded-md);
-          color: var(--medium-grey);
-          font-size: 14px;
-        }
-        
-        /* Form fields styling inside BottomSheet drawer */
-        .drawer-form {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-md);
-        }
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .form-label-el {
-          font-size: 12px;
-          font-weight: 700;
-          color: var(--medium-grey);
-          text-transform: uppercase;
-        }
-        .form-input-el {
-          height: 48px;
-          padding: 0 var(--spacing-sm);
-          border: 1px solid var(--outline-variant);
-          border-radius: var(--rounded-default);
-          background-color: var(--surface-container-low);
-          color: var(--on-surface);
-          outline: none;
-          font-family: 'Outfit', sans-serif;
-          font-size: 15px;
-          transition: border-color 0.15s;
-        }
-        .form-input-el:focus {
-          border-color: var(--primary-container);
-        }
-        :global([data-theme="dark"]) .form-input-el:focus {
-          border-color: var(--primary);
-        }
-        .avatar-grid {
-          display: grid;
-          grid-template-columns: repeat(6, 1fr);
-          gap: 8px;
-        }
-        .avatar-selection-btn {
-          height: 48px;
-          background-color: var(--surface-container-low);
-          border: 1px solid var(--outline-variant);
-          border-radius: var(--rounded-default);
-          font-size: 20px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.15s;
-        }
-        .avatar-selection-btn.selected {
-          background-color: var(--primary-container);
-          border-color: var(--primary-container);
-          transform: scale(1.05);
-        }
-        :global([data-theme="dark"]) .avatar-selection-btn.selected {
-          background-color: var(--primary);
-          border-color: var(--primary);
-        }
-        .modes-checkbox-row {
-          display: flex;
-          gap: 8px;
-        }
-        .mode-select-pill {
-          padding: 8px 16px;
-          border-radius: var(--rounded-full);
-          border: 1px solid var(--outline-variant);
-          background-color: var(--surface-container-low);
-          color: var(--on-surface-variant);
-          font-family: 'Outfit', sans-serif;
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .mode-select-pill.selected {
-          background-color: var(--primary-container);
-          color: #ffffff;
-          border-color: var(--primary-container);
-        }
-        :global([data-theme="dark"]) .mode-select-pill.selected {
-          background-color: var(--primary);
-          color: #131634;
-          border-color: var(--primary);
-        }
-        .form-submit-block {
-          margin-top: 8px;
-        }
-
-        /* Settings CSS */
-        .settings-container {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-sm);
-        }
-        .settings-section-title {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--medium-grey);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin: 12px 0 4px 0;
-        }
-        .settings-section-title.danger-text,
-        .danger-text {
-          color: var(--error);
-        }
-        .settings-option-card {
-          padding: var(--spacing-sm);
-        }
-        .settings-option-card.border-danger {
-          border-color: rgba(186, 26, 26, 0.4);
-        }
-        .option-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-          width: 100%;
-        }
-        .option-info {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          flex: 1;
-        }
-        .option-info h3 {
-          font-size: 15px;
-          font-weight: 700;
-          color: var(--on-surface);
-        }
-        .option-info p {
-          font-size: 12px;
-          color: var(--medium-grey);
-          line-height: 16px;
-        }
-        .upload-btn-wrapper {
-          position: relative;
-          overflow: hidden;
-          display: inline-block;
-        }
-        .file-input-hidden {
-          font-size: 100px;
-          position: absolute;
-          left: 0;
-          top: 0;
-          opacity: 0;
-          cursor: pointer;
-        }
-        .app-info-block {
-          background-color: var(--surface-container-low);
-          padding: var(--spacing-sm);
-          border-radius: var(--rounded-md);
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .info-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-          color: var(--on-surface-variant);
-        }
-        .info-icon {
-          color: var(--medium-grey);
-        }
-      `}</style>
     </div>
   );
 }

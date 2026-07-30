@@ -304,7 +304,7 @@ export const GameCard: React.FC<GameCardProps> = ({
   );
 };
 
-interface MatchCardProps {
+export interface MatchCardProps {
   gameName: string;
   gameIcon: string;
   date: string;
@@ -315,7 +315,6 @@ interface MatchCardProps {
     score: number;
     isWinner: boolean;
   }>;
-  sessionName?: string;
 }
 
 export const MatchCard: React.FC<MatchCardProps> = ({
@@ -324,7 +323,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({
   date,
   matchType,
   teamScores,
-  sessionName,
 }) => {
   return (
     <Card>
@@ -333,7 +331,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({
           <span className="match-game-icon">{gameIcon || "🎮"}</span>
           <div className="match-game-info">
             <span className="match-game-name">{gameName}</span>
-            <span className="match-session-name">{sessionName || "Companion Match"}</span>
           </div>
         </div>
         <div className="match-meta">

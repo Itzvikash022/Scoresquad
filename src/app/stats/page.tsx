@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { Trophy, Shield, Calendar, Search, BarChart3, Users, Flame, Star, Sparkles } from "lucide-react";
-import { Card, LeaderboardItem, MatchCard } from "@/components/ui/Cards";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Trophy, Shield, Calendar, Search, BarChart3, Users, Flame, Star, Sparkles, Gamepad, ArrowRight } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import dataService, { ClientPlayer, ClientMatch, ClientGame, ClientTeam } from "@/lib/dataService";
 
 export default function StatisticsPage() {
   return (
-    <Suspense fallback={<div className="empty-state-box">Loading stats & leaderboard...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-text-dim">Loading stats &amp; leaderboard...</div>}>
       <StatisticsContent />
     </Suspense>
   );
@@ -19,8 +21,6 @@ function StatisticsContent() {
   const initialTab = searchParams.get("tab") || "leaderboard";
   
   const [activeTab, setActiveTab] = useState<"leaderboard" | "history" | "analytics">("leaderboard");
-  
-  // Sub-tab for leaderboard: solo vs team
   const [leaderboardType, setLeaderboardType] = useState<"solo" | "team">("solo");
 
   // Master Data
@@ -34,16 +34,15 @@ function StatisticsContent() {
   const [selectedPlayerFilter, setSelectedPlayerFilter] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   
-  // Expanded state for grouped matches
-  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
-  const [expandedTournaments, setExpandedTournaments] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
   useEffect(() => {
-    // Set initial tab if URL query parameter matches
     if (initialTab === "history" || initialTab === "analytics" || initialTab === "leaderboard") {
       setActiveTab(initialTab);
     }
     loadData();
+    const unsubscribe = dataService.subscribe(loadData);
+    return unsubscribe;
   }, [initialTab]);
 
   const loadData = () => {
@@ -53,16 +52,29 @@ function StatisticsContent() {
     setMatches(dataService.getMatches());
   };
 
-  // 1. Leaderboards formatting
+  // Sortings
   const sortedPlayers = [...players].sort((a, b) => b.totalPoints - a.totalPoints || b.winRate - a.winRate);
   const sortedTeams = [...teams].sort((a, b) => b.points - a.points || b.winRate - a.winRate);
 
-  // 2. Matches History filtering
+  // Filter History
   const filteredMatches = matches.filter((m) => {
     const matchesGame = selectedGameFilter ? m.game === selectedGameFilter : true;
-    const matchesPlayer = selectedPlayerFilter ? m.players.includes(selectedPlayerFilter) : true;
     
-    // Text search filter
+    // Check if player filter is in player list or team members
+    let matchesPlayer = true;
+    if (selectedPlayerFilter) {
+      if (m.matchType === "Team Match") {
+        // Resolve teams and check members
+        const matchesAnyTeamMember = m.teams.some((tId) => {
+          const teamObj = teams.find((t) => t._id === tId);
+          return teamObj?.members.includes(selectedPlayerFilter);
+        });
+        matchesPlayer = matchesAnyTeamMember;
+      } else {
+        matchesPlayer = m.players.includes(selectedPlayerFilter);
+      }
+    }
+    
     const gameObj = games.find((g) => g._id === m.game);
     const matchesSearch = historySearch
       ? gameObj?.name.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -72,224 +84,127 @@ function StatisticsContent() {
     return matchesGame && matchesPlayer && matchesSearch;
   });
 
-  // Group matches by session (for quick matches) or tournament
-  const groupMatchesBySession = () => {
-    const sessionGroups: Record<string, ClientMatch[]> = {};
-    const ungroupedMatches: ClientMatch[] = [];
-
+  const getRoundGroups = () => {
+    const roundGroups: Record<string, ClientMatch[]> = {};
     filteredMatches.forEach((m) => {
-      if (m.session) {
-        if (!sessionGroups[m.session]) {
-          sessionGroups[m.session] = [];
+      const rId = m.roundId || m._id;
+      if (!roundGroups[rId]) {
+        roundGroups[rId] = [];
+      }
+      roundGroups[rId].push(m);
+    });
+    return roundGroups;
+  };
+
+  const roundGroups = getRoundGroups();
+
+  const formattedRounds = Object.entries(roundGroups).map(([roundId, matchesInRound]) => {
+    if (matchesInRound.length === 0) return null;
+
+    const sortedMatches = [...matchesInRound].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const firstMatch = sortedMatches[0];
+    const isTeam = firstMatch.matchType === "Team Match";
+    
+    const winCounts: Record<string, number> = {};
+    const scoreSums: Record<string, number> = {};
+
+    matchesInRound.forEach((m) => {
+      Object.entries(m.scores).forEach(([id, score]) => {
+        scoreSums[id] = (scoreSums[id] || 0) + score;
+      });
+      m.winners.forEach((wId) => {
+        winCounts[wId] = (winCounts[wId] || 0) + 1;
+      });
+    });
+
+    // Resolve profiles
+    let competitors: Array<{
+      id: string;
+      name: string;
+      playersList: Array<{ id: string; name: string }>;
+      score: number;
+      gamesWon: number;
+      isWinner: boolean;
+    }> = [];
+
+    if (isTeam && firstMatch.teams.length > 0) {
+      competitors = firstMatch.teams.map((tId) => {
+        const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
+        const teamPlayers = teamObj.members.map((pId: string) => {
+          const pObj = players.find((p) => p._id === pId);
+          return { id: pId, name: pObj?.name || "Player" };
+        });
+        return {
+          id: tId,
+          name: teamObj.name,
+          playersList: teamPlayers,
+          score: scoreSums[tId] || 0,
+          gamesWon: winCounts[tId] || 0,
+          isWinner: false,
+        };
+      });
+    } else {
+      competitors = firstMatch.players.map((pId) => {
+        const pObj = players.find((p) => p._id === pId) || { name: "Player" };
+        return {
+          id: pId,
+          name: pObj.name,
+          playersList: [{ id: pId, name: pObj.name }],
+          score: scoreSums[pId] || 0,
+          gamesWon: winCounts[pId] || 0,
+          isWinner: false,
+        };
+      });
+    }
+
+    // Determine overall round winner
+    let maxWins = -1;
+    let maxScore = -1;
+    let winnerIds: string[] = [];
+
+    competitors.forEach((c) => {
+      if (c.gamesWon > maxWins) {
+        maxWins = c.gamesWon;
+        maxScore = c.score;
+        winnerIds = [c.id];
+      } else if (c.gamesWon === maxWins) {
+        if (c.score > maxScore) {
+          maxScore = c.score;
+          winnerIds = [c.id];
+        } else if (c.score === maxScore) {
+          winnerIds.push(c.id);
         }
-        sessionGroups[m.session].push(m);
-      } else if (!m.tournament) {
-        // Only ungroup if not in a tournament either
-        ungroupedMatches.push(m);
       }
     });
 
-    return { sessionGroups, ungroupedMatches };
-  };
-
-  const groupMatchesByTournament = () => {
-    const tournamentGroups: Record<string, ClientMatch[]> = {};
-
-    filteredMatches.forEach((m) => {
-      if (m.tournament) {
-        if (!tournamentGroups[m.tournament]) {
-          tournamentGroups[m.tournament] = [];
-        }
-        tournamentGroups[m.tournament].push(m);
-      }
+    competitors.forEach((c) => {
+      c.isWinner = winnerIds.includes(c.id);
     });
 
-    return tournamentGroups;
-  };
-
-  const { sessionGroups, ungroupedMatches } = groupMatchesBySession();
-  const tournamentGroups = groupMatchesByTournament();
-
-  // Format grouped session matches with combined scores
-  const formatGroupedSessionMatches = () => {
-    return Object.entries(sessionGroups).map(([sessionId, matchesInSession]) => {
-      if (matchesInSession.length === 0) return null;
-
-      const sessionObj = dataService.getSessions().find((s) => s._id === sessionId);
-      const firstMatch = matchesInSession[0];
-
-      // Calculate combined scores by team/player
-      const combinedScores: Record<string, number> = {};
-      matchesInSession.forEach((m) => {
-        Object.entries(m.scores).forEach(([id, score]) => {
-          combinedScores[id] = (combinedScores[id] || 0) + score;
-        });
-      });
-
-      // Format for display
-      if (firstMatch.matchType === "Team Match" && firstMatch.teams.length > 0) {
-        const teamScores = firstMatch.teams.map((tId) => {
-          const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-          const teamPlayers = teamObj.members.map((pId: string) => {
-            const pObj = dataService.getPlayers().find((p) => p._id === pId);
-            return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-          });
-          return {
-            name: teamObj.name,
-            players: teamPlayers,
-            score: combinedScores[tId] || 0,
-            isWinner: combinedScores[firstMatch.teams[0]] !== combinedScores[firstMatch.teams[1]] && combinedScores[tId] === Math.max(...firstMatch.teams.map((id) => combinedScores[id])),
-          };
-        });
-
-        return {
-          _id: sessionId,
-          groupId: sessionId,
-          gameName: sessionObj?.name || "Quick Match Session",
-          gameIcon: "🎮",
-          date: matchesInSession[0].date,
-          matchType: "Team Match",
-          teamScores,
-          sessionName: sessionObj?.name,
-          matchCount: matchesInSession.length,
-          individualMatches: matchesInSession,
-          isGrouped: true,
-        };
-      } else {
-        // Solo/FFA grouped
-        const playerScores: Record<string, { name: string; players: any[]; score: number }> = {};
-        matchesInSession.forEach((m) => {
-          m.players.forEach((pId) => {
-            if (!playerScores[pId]) {
-              const pObj = dataService.getPlayers().find((p) => p._id === pId);
-              playerScores[pId] = {
-                name: pObj?.name || "Player",
-                players: [{ name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" }],
-                score: 0,
-              };
-            }
-            playerScores[pId].score += m.scores[pId] || 0;
-          });
-        });
-
-        return {
-          _id: sessionId,
-          groupId: sessionId,
-          gameName: sessionObj?.name || "Quick Match Session",
-          gameIcon: "🎮",
-          date: matchesInSession[0].date,
-          matchType: firstMatch.matchType,
-          teamScores: Object.values(playerScores),
-          sessionName: sessionObj?.name,
-          matchCount: matchesInSession.length,
-          individualMatches: matchesInSession,
-          isGrouped: true,
-        };
-      }
-    }).filter(Boolean);
-  };
-
-  // Format grouped tournament matches with combined scores
-  const formatGroupedTournamentMatches = () => {
-    return Object.entries(tournamentGroups).map(([tournamentId, matchesInTournament]) => {
-      if (matchesInTournament.length === 0) return null;
-
-      const tournamentObj = dataService.getTournaments?.().find((t: any) => t._id === tournamentId);
-      const firstMatch = matchesInTournament[0];
-
-      // Calculate combined scores by team/player
-      const combinedScores: Record<string, number> = {};
-      matchesInTournament.forEach((m) => {
-        Object.entries(m.scores).forEach(([id, score]) => {
-          combinedScores[id] = (combinedScores[id] || 0) + score;
-        });
-      });
-
-      // Format for display
-      if (firstMatch.matchType === "Team Match" && firstMatch.teams.length > 0) {
-        const teamScores = firstMatch.teams.map((tId) => {
-          const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-          const teamPlayers = teamObj.members.map((pId: string) => {
-            const pObj = dataService.getPlayers().find((p) => p._id === pId);
-            return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-          });
-          return {
-            name: teamObj.name,
-            players: teamPlayers,
-            score: combinedScores[tId] || 0,
-            isWinner: combinedScores[firstMatch.teams[0]] !== combinedScores[firstMatch.teams[1]] && combinedScores[tId] === Math.max(...firstMatch.teams.map((id) => combinedScores[id])),
-          };
-        });
-
-        return {
-          _id: tournamentId,
-          groupId: tournamentId,
-          gameName: tournamentObj?.name || "Tournament",
-          gameIcon: "🏆",
-          date: matchesInTournament[0].date,
-          matchType: "Team Match",
-          teamScores,
-          sessionName: tournamentObj?.name,
-          matchCount: matchesInTournament.length,
-          individualMatches: matchesInTournament,
-          isGrouped: true,
-          isTournament: true,
-        };
-      }
-
-      return null;
-    }).filter(Boolean);
-  };
-
-  const groupedSessionMatches = formatGroupedSessionMatches();
-  const groupedTournamentMatches = formatGroupedTournamentMatches();
-
-  // Format matches for rendering in MatchCard
-  const formattedMatches = filteredMatches.map((m) => {
-    const gameObj = games.find((g) => g._id === m.game) || { name: "Unknown", icon: "🎮" };
-    const sessionObj = m.session ? dataService.getSessions().find((s) => s._id === m.session) : null;
-
-    const teamScores = m.teams.map((tId) => {
-      const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-      const teamPlayers = teamObj.members.map((pId: string) => {
-        const pObj = dataService.getPlayers().find((p) => p._id === pId);
-        return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-      });
-      return {
-        name: teamObj.name,
-        players: teamPlayers,
-        score: m.scores[tId] || 0,
-        isWinner: m.winners.includes(tId),
-      };
-    });
-
-    const soloScores = m.players.map((pId) => {
-      const pObj = dataService.getPlayers().find((p) => p._id === pId) || { name: "Player", avatar: "👤" };
-      return {
-        name: pObj.name,
-        players: [{ name: pObj.name, avatar: pObj.avatar }],
-        score: m.scores[pId] || 0,
-        isWinner: m.winners.includes(pId),
-      };
-    });
+    const uniqueGames = Array.from(new Set(matchesInRound.map((m) => m.game)));
+    const gameNames = uniqueGames
+      .map((gId) => games.find((g) => g._id === gId)?.name || "Game")
+      .join(", ");
+    
+    const summaryText = `${gameNames} (${matchesInRound.length} game${matchesInRound.length === 1 ? "" : "s"})`;
 
     return {
-      _id: m._id,
-      gameName: gameObj.name,
-      gameIcon: gameObj.icon,
-      date: m.date,
-      matchType: m.matchType,
-      teamScores: m.matchType === "Team Match" ? teamScores : soloScores,
-      sessionName: sessionObj?.name || undefined,
+      roundId,
+      date: firstMatch.date,
+      isTournament: firstMatch.isTournamentMatch,
+      tournamentId: firstMatch.tournament,
+      matchType: firstMatch.matchType,
+      competitors,
+      summaryText,
+      matches: sortedMatches,
     };
-  });
+  }).filter((r): r is NonNullable<typeof r> => r !== null).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  // 3. Analytics Computations
+  // Analytics
   const getAnalytics = () => {
     const totalMatches = matches.length;
     const totalPlayers = players.length;
 
-    // Most played game
     let mostPlayedGame = "None";
     let maxGameMatches = -1;
     games.forEach((g) => {
@@ -299,7 +214,6 @@ function StatisticsContent() {
       }
     });
 
-    // Most active player
     let mostActivePlayer = "None";
     let maxPlayerMatches = -1;
     players.forEach((p) => {
@@ -309,7 +223,6 @@ function StatisticsContent() {
       }
     });
 
-    // Highest scoring team
     let highestScoringTeam = "None";
     let maxTeamPoints = -1;
     teams.forEach((t) => {
@@ -319,7 +232,6 @@ function StatisticsContent() {
       }
     });
 
-    // Compute win streaks
     const winStreaks = players.map((p) => {
       let maxStreak = 0;
       let currentStreak = 0;
@@ -331,7 +243,7 @@ function StatisticsContent() {
           currentStreak = 0;
         }
       });
-      return { name: p.name, avatar: p.avatar, streak: maxStreak };
+      return { name: p.name, id: p._id, streak: maxStreak };
     }).sort((a, b) => b.streak - a.streak).slice(0, 3);
 
     return {
@@ -347,101 +259,177 @@ function StatisticsContent() {
   const analytics = getAnalytics();
 
   return (
-    <div className="stats-view">
-      {/* Top Main Tab Navigation */}
-      <div className="stats-tabs">
-        <button className={`tab-btn ${activeTab === "leaderboard" ? "active" : ""}`} onClick={() => setActiveTab("leaderboard")}>
+    <div className="flex flex-col gap-5 max-w-[800px] mx-auto">
+      {/* 3-Way Tabs navigation */}
+      <div className="flex bg-surface border border-border rounded-full p-[3px] w-full">
+        <button
+          onClick={() => setActiveTab("leaderboard")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "leaderboard" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Leaderboard
         </button>
-        <button className={`tab-btn ${activeTab === "history" ? "active" : ""}`} onClick={() => setActiveTab("history")}>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "history" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Match History
         </button>
-        <button className={`tab-btn ${activeTab === "analytics" ? "active" : ""}`} onClick={() => setActiveTab("analytics")}>
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`flex-1 text-center py-2.5 rounded-full font-bold text-[13px] transition-all cursor-pointer ${
+            activeTab === "analytics" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+          }`}
+        >
           Analytics
         </button>
       </div>
 
-      {/* Leaderboard Panel */}
+      {/* 1. LEADERBOARD PANEL */}
       {activeTab === "leaderboard" && (
-        <div className="tab-panel fade-in">
+        <div className="flex flex-col gap-4 fade-in">
           {/* Sub toggles: Solo vs Team */}
-          <div className="leaderboard-toggles">
+          <div className="flex bg-surface-2 border border-border rounded-full p-[3px] max-w-[340px]">
             <button
-              className={`toggle-sub-btn ${leaderboardType === "solo" ? "active" : ""}`}
               onClick={() => setLeaderboardType("solo")}
+              className={`flex-1 text-center py-2 rounded-full font-bold text-[12px] transition-all cursor-pointer ${
+                leaderboardType === "solo" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+              }`}
             >
-              <Users size={16} /> Individual Solo
+              Individual Solo
             </button>
             <button
-              className={`toggle-sub-btn ${leaderboardType === "team" ? "active" : ""}`}
               onClick={() => setLeaderboardType("team")}
+              className={`flex-1 text-center py-2 rounded-full font-bold text-[12px] transition-all cursor-pointer ${
+                leaderboardType === "team" ? "bg-primary text-white" : "text-text-dim hover:text-text"
+              }`}
             >
-              <Shield size={16} /> Team Pairs
+              Team Pairs
             </button>
           </div>
 
-          <div className="leaderboard-ranks-list">
+          {/* Ranks list */}
+          <div className="flex flex-col gap-2">
             {leaderboardType === "solo" ? (
               sortedPlayers.length > 0 ? (
-                sortedPlayers.map((p, idx) => (
-                  <LeaderboardItem
-                    key={p._id}
-                    rank={idx + 1}
-                    name={p.name}
-                    avatar={p.avatar}
-                    score={p.totalPoints}
-                    subtitle={`${p.wins} Wins • ${p.matches} Matches • WR ${p.winRate.toFixed(0)}%`}
-                  />
-                ))
+                sortedPlayers.map((p, idx) => {
+                  const isFirst = idx === 0;
+                  return (
+                    <Card
+                      key={p._id}
+                      className={`p-3 flex flex-row items-center gap-3 rounded-xl transition-all ${
+                        isFirst
+                          ? "border-accent/35 bg-gradient-to-b from-accent/[0.08] to-surface"
+                          : "border-border bg-surface"
+                      }`}
+                    >
+                      <div
+                        className={`w-6.5 h-6.5 font-display font-bold text-[12.5px] rounded-md flex items-center justify-center ${
+                          isFirst ? "bg-accent text-[#231702]" : "bg-surface-3 text-text-dim"
+                        }`}
+                      >
+                        {idx + 1}
+                      </div>
+                      <PlayerAvatar id={p._id} name={p.name} size="sm" />
+                      <div className="flex-grow min-w-0">
+                        <div className="font-bold text-[14px] text-text truncate">{p.name}</div>
+                        <div className="text-[12px] text-text-dim">
+                          {p.wins} wins · {p.matches} matches · WR {p.winRate.toFixed(0)}%
+                        </div>
+                      </div>
+                      <div className="text-right flex flex-col justify-center">
+                        <span className={`font-display font-bold text-[18px] leading-tight ${isFirst ? "text-accent" : "text-text"}`}>
+                          {p.totalPoints}
+                        </span>
+                        <span className="mono-label text-text-faint text-[8.5px] tracking-widest mt-0.5">PTS</span>
+                      </div>
+                    </Card>
+                  );
+                })
               ) : (
-                <div className="empty-state-box">No player rankings recorded.</div>
+                <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50 text-[13.5px]">
+                  No player rankings recorded yet.
+                </div>
               )
             ) : (
               sortedTeams.length > 0 ? (
-                sortedTeams.map((t, idx) => (
-                  <LeaderboardItem
-                    key={t._id}
-                    rank={idx + 1}
-                    name={t.name}
-                    avatar="🛡️"
-                    score={t.points}
-                    subtitle={`${t.wins} Wins • ${t.games} Matches • WR ${t.winRate.toFixed(0)}%`}
-                    isTeam
-                  />
-                ))
+                sortedTeams.map((t, idx) => {
+                  const isFirst = idx === 0;
+                  const teamPlayers = t.members.map((pId) => ({
+                    id: pId,
+                    name: players.find((p) => p._id === pId)?.name || "Player",
+                  }));
+
+                  return (
+                    <Card
+                      key={t._id}
+                      className={`p-3 flex flex-row items-center gap-3 rounded-xl transition-all ${
+                        isFirst
+                          ? "border-accent/35 bg-gradient-to-b from-accent/[0.08] to-surface"
+                          : "border-border bg-surface"
+                      }`}
+                    >
+                      <div
+                        className={`w-6.5 h-6.5 font-display font-bold text-[12.5px] rounded-md flex items-center justify-center ${
+                          isFirst ? "bg-accent text-[#231702]" : "bg-surface-3 text-text-dim"
+                        }`}
+                      >
+                        {idx + 1}
+                      </div>
+                      <PlayerAvatar size="sm" players={teamPlayers} />
+                      <div className="flex-grow min-w-0">
+                        <div className="font-bold text-[14px] text-text truncate">{t.name}</div>
+                        <div className="text-[12px] text-text-dim">
+                          {t.wins} wins · {t.games} matches · WR {t.winRate.toFixed(0)}%
+                        </div>
+                      </div>
+                      <div className="text-right flex flex-col justify-center">
+                        <span className={`font-display font-bold text-[18px] leading-tight ${isFirst ? "text-accent" : "text-text"}`}>
+                          {t.points}
+                        </span>
+                        <span className="mono-label text-text-faint text-[8.5px] tracking-widest mt-0.5">PTS</span>
+                      </div>
+                    </Card>
+                  );
+                })
               ) : (
-                <div className="empty-state-box">No team combination rankings recorded.</div>
+                <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50 text-[13.5px]">
+                  No team combination rankings recorded yet.
+                </div>
               )
             )}
           </div>
         </div>
       )}
 
-      {/* History Panel */}
+      {/* 2. MATCH HISTORY PANEL */}
       {activeTab === "history" && (
-        <div className="tab-panel fade-in">
-          {/* Dynamic Filters Row */}
-          <div className="filters-container">
-            <div className="search-bar">
-              <Search size={16} className="search-icon" />
+        <div className="flex flex-col gap-4 fade-in">
+          {/* Filters Bar */}
+          <div className="flex flex-col gap-2 bg-surface p-3.5 border border-border rounded-xl">
+            <div className="flex items-center gap-2 bg-surface-2 border border-border rounded-md px-3 h-10.5">
+              <Search className="h-4 w-4 text-text-dim shrink-0" />
               <input
                 type="text"
                 placeholder="Search game modes..."
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
-                className="search-input"
+                className="w-full bg-transparent text-[13.5px] text-text outline-none"
               />
             </div>
 
-            <div className="filter-selects-row">
+            <div className="grid grid-cols-2 gap-2 mt-1">
               <select
                 value={selectedGameFilter}
                 onChange={(e) => setSelectedGameFilter(e.target.value)}
-                className="filter-dropdown"
+                className="h-10 border border-border bg-surface-2 text-text text-[13px] font-semibold rounded-md px-2 outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">All Games</option>
                 {games.map((g) => (
-                  <option key={g._id} value={g._id}>
+                  <option key={g._id} value={g._id} className="bg-surface">
                     {g.name}
                   </option>
                 ))}
@@ -450,11 +438,11 @@ function StatisticsContent() {
               <select
                 value={selectedPlayerFilter}
                 onChange={(e) => setSelectedPlayerFilter(e.target.value)}
-                className="filter-dropdown"
+                className="h-10 border border-border bg-surface-2 text-text text-[13px] font-semibold rounded-md px-2 outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">All Players</option>
                 {players.map((p) => (
-                  <option key={p._id} value={p._id}>
+                  <option key={p._id} value={p._id} className="bg-surface">
                     {p.name}
                   </option>
                 ))}
@@ -462,516 +450,167 @@ function StatisticsContent() {
             </div>
           </div>
 
-          {/* History Matches List */}
-          <div className="history-matches-scroller">
-            {groupedSessionMatches.length > 0 || groupedTournamentMatches.length > 0 || ungroupedMatches.length > 0 ? (
-              <>
-                {groupedSessionMatches.map((grouped: any) => {
-                  const isExpanded = expandedSessions.has(grouped.groupId);
-                  return (
-                    <div key={grouped.groupId}>
-                      <div
-                        onClick={() => {
-                          const newExpanded = new Set(expandedSessions);
-                          if (isExpanded) {
-                            newExpanded.delete(grouped.groupId);
-                          } else {
-                            newExpanded.add(grouped.groupId);
-                          }
-                          setExpandedSessions(newExpanded);
-                        }}
-                        style={{
-                          padding: "12px",
-                          background: "var(--surface-container-low)",
-                          borderRadius: "var(--rounded-md)",
-                          cursor: "pointer",
-                          marginBottom: "8px",
-                          border: "1px solid var(--outline-variant)",
-                        }}
+          {/* Scroller list */}
+          <div className="flex flex-col gap-3">
+            {formattedRounds.length > 0 ? (
+              formattedRounds.map((round: any) => {
+                const isTourney = round.isTournament;
+                const tourneyObj = isTourney && round.tournamentId ? dataService.getTournaments().find((t: any) => t._id === round.tournamentId) : null;
+                const dateStr = new Date(round.date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                
+                const c1 = round.competitors[0] || { name: "Player A", playersList: [], gamesWon: 0, score: 0, isWinner: false };
+                const c2 = round.competitors[1] || { name: "Player B", playersList: [], gamesWon: 0, score: 0, isWinner: false };
+
+                return (
+                  <Card
+                    key={round.roundId}
+                    onClick={() => router.push(`/matches/round/${round.roundId}`)}
+                    className="p-3.5 border border-border bg-surface rounded-xl flex flex-col gap-3 cursor-pointer hover:border-primary/50 hover:bg-surface-2/20 transition-all"
+                  >
+                    {/* Header */}
+                    <div className="flex justify-between items-center border-b border-border/40 pb-2">
+                      <Badge
+                        className={`border-none font-semibold text-[10px] rounded-full px-2.5 py-0.5 flex items-center gap-1 ${
+                          isTourney
+                            ? "bg-accent/10 text-accent"
+                            : "bg-primary/10 text-text-dim"
+                        }`}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1 }}>
-                            <span style={{ fontSize: "20px" }}>{grouped.gameIcon}</span>\n                            <div>
-                              <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--on-surface)" }}>
-                                {grouped.gameName} ({grouped.matchCount} games)
-                              </div>
-                              <div style={{ fontSize: "12px", color: "var(--medium-grey)" }}>
-                                {new Date(grouped.date).toLocaleDateString()}
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--primary-container)", minWidth: "120px", textAlign: "right" }}>
-                            {grouped.teamScores[0]?.score || 0} : {grouped.teamScores[1]?.score || 0}
-                          </div>
+                        {isTourney ? <Trophy className="h-3 w-3" /> : <Gamepad className="h-3 w-3" />}
+                        {isTourney ? `${tourneyObj?.name || "Tournament"}` : "Quick Match"}
+                      </Badge>
+                      <span className="mono-label text-text-faint text-[9.5px] uppercase font-mono">{dateStr}</span>
+                    </div>
+
+                    {/* Competitors rows */}
+                    <div className="flex flex-col gap-1.5">
+                      <div
+                        className={`flex justify-between items-center px-2.5 py-1.8 rounded-lg transition-all ${
+                          c1.isWinner
+                            ? "bg-accent/[0.08] border border-dashed border-accent/40"
+                            : "border border-transparent"
+                        }`}
+                      >
+                        <span className={`font-semibold text-[13px] flex items-center gap-2 ${c1.isWinner ? "text-accent" : "text-text-dim"}`}>
+                          <PlayerAvatar players={c1.playersList} size="xs" />
+                          {c1.name}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className={`font-mono text-[11px] ${c1.isWinner ? "text-accent/80" : "text-text-faint"}`}>
+                            {c1.score} pts
+                          </span>
+                          <span className={`font-display font-bold text-[14.5px] tabular-nums ${c1.isWinner ? "text-accent" : "text-text-dim"}`}>
+                            {c1.gamesWon}
+                          </span>
                         </div>
                       </div>
-                      {isExpanded && (
-                        <div style={{ paddingLeft: "12px", borderLeft: "2px solid var(--primary-container)", marginBottom: "12px" }}>
-                          {grouped.individualMatches.map((match: ClientMatch, idx: number) => {
-                            const gameObj = games.find((g) => g._id === match.game);
-                            const matchTeamScores = match.teams.map((tId) => {
-                              const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-                              const teamPlayers = teamObj.members.map((pId: string) => {
-                                const pObj = dataService.getPlayers().find((p) => p._id === pId);
-                                return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-                              });
-                              return {
-                                name: teamObj.name,
-                                players: teamPlayers,
-                                score: match.scores[tId] || 0,
-                                isWinner: match.winners.includes(tId),
-                              };
-                            });
-                            return (
-                              <MatchCard
-                                key={`${grouped.groupId}-${idx}`}
-                                gameName={gameObj?.name || "Unknown"}
-                                gameIcon={gameObj?.icon || "🎮"}
-                                date={match.date}
-                                matchType={match.matchType}
-                                teamScores={matchTeamScores}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {groupedTournamentMatches.map((grouped: any) => {
-                  const isExpanded = expandedTournaments.has(grouped.groupId);
-                  return (
-                    <div key={grouped.groupId}>
+
                       <div
-                        onClick={() => {
-                          const newExpanded = new Set(expandedTournaments);
-                          if (isExpanded) {
-                            newExpanded.delete(grouped.groupId);
-                          } else {
-                            newExpanded.add(grouped.groupId);
-                          }
-                          setExpandedTournaments(newExpanded);
-                        }}
-                        style={{
-                          padding: "12px",
-                          background: "var(--surface-container-low)",
-                          borderRadius: "var(--rounded-md)",
-                          cursor: "pointer",
-                          marginBottom: "8px",
-                          border: "1px solid var(--outline-variant)",
-                        }}
+                        className={`flex justify-between items-center px-2.5 py-1.8 rounded-lg transition-all ${
+                          c2.isWinner
+                            ? "bg-accent/[0.08] border border-dashed border-accent/40"
+                            : "border border-transparent"
+                        }`}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1 }}>
-                            <span style={{ fontSize: "20px" }}>{grouped.gameIcon}</span>
-                            <div>
-                              <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--on-surface)" }}>
-                                {grouped.gameName} ({grouped.matchCount} matches)
-                              </div>
-                              <div style={{ fontSize: "12px", color: "var(--medium-grey)" }}>
-                                {new Date(grouped.date).toLocaleDateString()}
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--accent-gold)", minWidth: "120px", textAlign: "right" }}>
-                            {grouped.teamScores[0]?.score || 0} : {grouped.teamScores[1]?.score || 0}
-                          </div>
+                        <span className={`font-semibold text-[13px] flex items-center gap-2 ${c2.isWinner ? "text-accent" : "text-text-dim"}`}>
+                          <PlayerAvatar players={c2.playersList} size="xs" />
+                          {c2.name}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className={`font-mono text-[11px] ${c2.isWinner ? "text-accent/80" : "text-text-faint"}`}>
+                            {c2.score} pts
+                          </span>
+                          <span className={`font-display font-bold text-[14.5px] tabular-nums ${c2.isWinner ? "text-accent" : "text-text-dim"}`}>
+                            {c2.gamesWon}
+                          </span>
                         </div>
                       </div>
-                      {isExpanded && (
-                        <div style={{ paddingLeft: "12px", borderLeft: "2px solid var(--accent-gold)", marginBottom: "12px" }}>
-                          {grouped.individualMatches.map((match: ClientMatch, idx: number) => {
-                            const gameObj = games.find((g) => g._id === match.game);
-                            const matchTeamScores = match.teams.map((tId) => {
-                              const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-                              const teamPlayers = teamObj.members.map((pId: string) => {
-                                const pObj = dataService.getPlayers().find((p) => p._id === pId);
-                                return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-                              });
-                              return {
-                                name: teamObj.name,
-                                players: teamPlayers,
-                                score: match.scores[tId] || 0,
-                                isWinner: match.winners.includes(tId),
-                              };
-                            });
-                            return (
-                              <MatchCard
-                                key={`${grouped.groupId}-${idx}`}
-                                gameName={gameObj?.name || "Unknown"}
-                                gameIcon={gameObj?.icon || "🎮"}
-                                date={match.date}
-                                matchType={match.matchType}
-                                teamScores={matchTeamScores}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
-                  );
-                })}
-                {ungroupedMatches.map((m) => {
-                  const gameObj = games.find((g) => g._id === m.game) || { name: "Unknown", icon: "🎮" };
-                  const teamScores = m.teams.map((tId) => {
-                    const teamObj = teams.find((t) => t._id === tId) || { name: "Team", members: [] };
-                    const teamPlayers = teamObj.members.map((pId: string) => {
-                      const pObj = dataService.getPlayers().find((p) => p._id === pId);
-                      return { name: pObj?.name || "Player", avatar: pObj?.avatar || "👤" };
-                    });
-                    return {
-                      name: teamObj.name,
-                      players: teamPlayers,
-                      score: m.scores[tId] || 0,
-                      isWinner: m.winners.includes(tId),
-                    };
-                  });
-                  const soloScores = m.players.map((pId) => {
-                    const pObj = dataService.getPlayers().find((p) => p._id === pId) || { name: "Player", avatar: "👤" };
-                    return {
-                      name: pObj.name,
-                      players: [{ name: pObj.name, avatar: pObj.avatar }],
-                      score: m.scores[pId] || 0,
-                      isWinner: m.winners.includes(pId),
-                    };
-                  });
-                  return (
-                    <MatchCard
-                      key={m._id}
-                      gameName={gameObj.name}
-                      gameIcon={gameObj.icon}
-                      date={m.date}
-                      matchType={m.matchType}
-                      teamScores={m.matchType === "Team Match" ? teamScores : soloScores}
-                    />
-                  );
-                })}
-              </>
+
+                    <div className="text-[12px] text-text-faint font-semibold tracking-wider font-mono uppercase mt-1 px-1 flex justify-between items-center">
+                      <span>{round.summaryText}</span>
+                      <span className="text-primary font-bold flex items-center gap-0.5 hover:underline">
+                        Edit details <ArrowRight className="h-3 w-3" />
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })
             ) : (
-              <div className="empty-state-box">No matches match your filter criteria.</div>
+              <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50 text-[13.5px]">
+                No matches match your filter criteria.
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Analytics Panel */}
+      {/* 3. ANALYTICS PANEL */}
       {activeTab === "analytics" && (
-        <div className="tab-panel fade-in">
-          <div className="analytics-grid">
-            <Card className="analytics-stat-card">
-              <div className="stat-flex">
-                <div className="stat-info">
-                  <span className="stat-label">Total Matches</span>
-                  <span className="stat-number">{analytics.totalMatches}</span>
-                </div>
-                <Flame size={32} className="stat-icon-color text-red" />
+        <div className="flex flex-col gap-4 fade-in">
+          {/* Quick Metrics grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-4 border-border bg-surface rounded-xl flex flex-row justify-between items-center">
+              <div>
+                <span className="mono-label text-text-faint text-[9.5px] uppercase">TOTAL MATCHES</span>
+                <div className="font-display font-bold text-[24px] text-text mt-1">{analytics.totalMatches}</div>
+              </div>
+              <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                <Flame className="h-5 w-5" />
               </div>
             </Card>
 
-            <Card className="analytics-stat-card">
-              <div className="stat-flex">
-                <div className="stat-info">
-                  <span className="stat-label">Total Players</span>
-                  <span className="stat-number">{analytics.totalPlayers}</span>
-                </div>
-                <Users size={32} className="stat-icon-color text-blue" />
+            <Card className="p-4 border-border bg-surface rounded-xl flex flex-row justify-between items-center">
+              <div>
+                <span className="mono-label text-text-faint text-[9.5px] uppercase">TOTAL PLAYERS</span>
+                <div className="font-display font-bold text-[24px] text-text mt-1">{analytics.totalPlayers}</div>
+              </div>
+              <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                <Users className="h-5 w-5" />
               </div>
             </Card>
           </div>
 
-          <h3 className="analytics-section-title">Performance Records</h3>
-          
-          <Card className="analytics-details-card">
-            <div className="detail-row">
-              <span className="detail-label">Most Played Game</span>
-              <span className="detail-value">{analytics.mostPlayedGame}</span>
+          {/* Record table details */}
+          <h3 className="mono-label text-text-faint text-[10.5px] uppercase mt-2">Performance Records</h3>
+          <Card className="p-4 border-border bg-surface rounded-xl flex flex-col gap-3.5 divide-y divide-border/30">
+            <div className="flex justify-between items-center text-[13.5px]">
+              <span className="font-semibold text-text-dim">Most Played Game</span>
+              <span className="font-bold text-text">{analytics.mostPlayedGame}</span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Most Active Player</span>
-              <span className="detail-value">{analytics.mostActivePlayer}</span>
+            <div className="flex justify-between items-center text-[13.5px]">
+              <span className="font-semibold text-text-dim">Most Active Player</span>
+              <span className="font-bold text-text">{analytics.mostActivePlayer}</span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Top Scoring Team combination</span>
-              <span className="detail-value text-bold-val">{analytics.highestScoringTeam}</span>
+            <div className="flex justify-between items-center text-[13.5px]">
+              <span className="font-semibold text-text-dim">Top Scoring Team combination</span>
+              <span className="font-bold text-primary">{analytics.highestScoringTeam}</span>
             </div>
           </Card>
 
-          {/* Streaks Card */}
-          <h3 className="analytics-section-title">Longest Win Streaks</h3>
-          <Card className="streaks-display-card">
+          {/* Longest Win Streaks */}
+          <h3 className="mono-label text-text-faint text-[10.5px] uppercase mt-2">Longest Win Streaks</h3>
+          <Card className="p-0 border-border bg-surface rounded-xl overflow-hidden flex flex-col divide-y divide-border/30">
             {analytics.winStreaks.length > 0 ? (
               analytics.winStreaks.map((p, idx) => (
-                <div key={idx} className="streak-row">
-                  <span className="streak-medal">{idx === 0 ? "🔥" : idx === 1 ? "⭐" : "✨"}</span>
-                  <span className="streak-avatar">{p.avatar}</span>
-                  <span className="streak-name">{p.name}</span>
-                  <div className="streak-count">
-                    <span>{p.streak}</span>
-                    <span className="streak-lbl">WINS</span>
+                <div key={idx} className="flex items-center gap-3 p-3 border-b border-border/25 last:border-0">
+                  <span className="text-[17px] w-6 text-center">{idx === 0 ? "🔥" : idx === 1 ? "⭐" : "✨"}</span>
+                  <PlayerAvatar id={p.id} name={p.name} size="xs" />
+                  <span className="font-bold text-[13.5px] text-text flex-1 truncate">{p.name}</span>
+                  <div className="text-right flex items-center gap-1">
+                    <span className="font-display font-bold text-[17px] text-[#45D999]">{p.streak}</span>
+                    <span className="mono-label text-text-faint text-[8.5px] font-bold">WINS</span>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="empty-streak-lbl">No win streaks active. Play matches to build streaks!</div>
+              <div className="p-6 text-center text-text-dim italic text-[12.5px]">
+                No win streaks active. Play matches to build streaks!
+              </div>
             )}
           </Card>
         </div>
       )}
-
-      <style jsx>{`
-        .stats-view {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-md);
-        }
-        .stats-tabs {
-          display: flex;
-          background-color: var(--surface-container-high);
-          padding: 4px;
-          border-radius: var(--rounded-md);
-          width: 100%;
-        }
-        .tab-btn {
-          flex: 1;
-          border: none;
-          background: none;
-          padding: 10px 0;
-          font-family: 'Outfit', sans-serif;
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--on-surface-variant);
-          border-radius: var(--rounded-default);
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-        .tab-btn.active {
-          background-color: var(--background);
-          color: var(--primary-container);
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        }
-        :global([data-theme="dark"]) .tab-btn.active {
-          color: var(--primary);
-        }
-        .tab-panel {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-sm);
-        }
-
-        /* Leaderboard styling */
-        .leaderboard-toggles {
-          display: flex;
-          gap: 8px;
-        }
-        .toggle-sub-btn {
-          flex: 1;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          height: 40px;
-          border: 1px solid var(--outline-variant);
-          background-color: var(--surface-container-low);
-          color: var(--on-surface-variant);
-          font-family: 'Outfit', sans-serif;
-          font-size: 13px;
-          font-weight: 700;
-          border-radius: var(--rounded-full);
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        .toggle-sub-btn.active {
-          background-color: var(--primary-container);
-          color: #ffffff;
-          border-color: var(--primary-container);
-        }
-        :global([data-theme="dark"]) .toggle-sub-btn.active {
-          background-color: var(--primary);
-          color: #131634;
-          border-color: var(--primary);
-        }
-        .leaderboard-ranks-list {
-          display: flex;
-          flex-direction: column;
-        }
-        .empty-state-box {
-          text-align: center;
-          padding: var(--spacing-lg);
-          background-color: var(--surface-container-low);
-          border-radius: var(--rounded-md);
-          color: var(--medium-grey);
-          font-size: 13px;
-        }
-
-        /* History styling */
-        .filters-container {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .search-bar {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background-color: var(--surface-container-lowest);
-          border: 1px solid var(--outline-variant);
-          border-radius: var(--rounded-default);
-          padding: 0 12px;
-          height: 48px;
-        }
-        :global([data-theme="dark"]) .search-bar {
-          background-color: var(--surface);
-        }
-        .search-icon {
-          color: var(--medium-grey);
-        }
-        .search-input {
-          width: 100%;
-          border: none;
-          background: none;
-          outline: none;
-          font-family: 'Outfit', sans-serif;
-          font-size: 14px;
-          color: var(--on-surface);
-        }
-        .filter-selects-row {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 8px;
-        }
-        .filter-dropdown {
-          height: 44px;
-          border: 1px solid var(--outline-variant);
-          border-radius: var(--rounded-default);
-          background-color: var(--surface-container-low);
-          color: var(--on-surface);
-          outline: none;
-          font-family: 'Outfit', sans-serif;
-          font-size: 13px;
-          padding: 0 var(--spacing-xs);
-        }
-        .history-matches-scroller {
-          display: flex;
-          flex-direction: column;
-          gap: var(--spacing-xs);
-        }
-
-        /* Analytics styling */
-        .analytics-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: var(--spacing-xs);
-        }
-        .analytics-stat-card {
-          padding: 16px !important;
-        }
-        .stat-flex {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          width: 100%;
-        }
-        .stat-info {
-          display: flex;
-          flex-direction: column;
-        }
-        .stat-label {
-          font-size: 11px;
-          font-weight: 700;
-          color: var(--medium-grey);
-          text-transform: uppercase;
-        }
-        .stat-number {
-          font-size: 24px;
-          font-weight: 800;
-          color: var(--on-surface);
-        }
-        .stat-icon-color.text-red {
-          color: var(--error);
-        }
-        .stat-icon-color.text-blue {
-          color: var(--primary-container);
-        }
-        :global([data-theme="dark"]) .stat-icon-color.text-blue {
-          color: var(--primary);
-        }
-        .analytics-section-title {
-          font-size: 12px;
-          font-weight: 700;
-          color: var(--medium-grey);
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin: 12px 0 4px 0;
-        }
-        .analytics-details-card {
-          gap: 12px !important;
-        }
-        .detail-row {
-          display: flex;
-          justify-content: space-between;
-          font-size: 13px;
-        }
-        .detail-label {
-          color: var(--medium-grey);
-          font-weight: 600;
-        }
-        .detail-value {
-          color: var(--on-surface);
-          font-weight: 700;
-        }
-        .detail-value.text-bold-val {
-          color: var(--primary-container);
-        }
-        :global([data-theme="dark"]) .detail-value.text-bold-val {
-          color: var(--primary);
-        }
-        
-        .streaks-display-card {
-          gap: 10px !important;
-          padding: 8px 0 !important;
-        }
-        .streak-row {
-          display: flex;
-          align-items: center;
-          padding: 8px 16px;
-          border-bottom: 1px solid var(--outline-variant);
-        }
-        .streak-row:last-child {
-          border-bottom: none;
-        }
-        .streak-medal {
-          font-size: 16px;
-          margin-right: 6px;
-        }
-        .streak-avatar {
-          font-size: 18px;
-          margin-right: 8px;
-        }
-        .streak-name {
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--on-surface);
-          flex-grow: 1;
-        }
-        .streak-count {
-          font-size: 16px;
-          font-weight: 800;
-          color: var(--accent-green);
-        }
-        .streak-lbl {
-          font-size: 9px;
-          font-weight: 700;
-          color: var(--medium-grey);
-          margin-left: 2px;
-        }
-        .empty-streak-lbl {
-          font-size: 12px;
-          color: var(--medium-grey);
-          text-align: center;
-          padding: 16px;
-          font-style: italic;
-        }
-      `}</style>
     </div>
   );
 }
