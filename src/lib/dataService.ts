@@ -14,6 +14,7 @@ export interface ClientPlayer {
   winRate: number;
   recentForm: string[];
   createdAt?: string;
+  hasRenamedOnce?: boolean; // One-time rename token — once used, name is permanently locked
 }
 
 export interface ClientGame {
@@ -78,6 +79,8 @@ const DEFAULT_MATCHES: ClientMatch[] = [];
 
 class DataService {
   private listeners: (() => void)[] = [];
+  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly SYNC_DEBOUNCE_MS = 3000; // Wait 3s of inactivity before syncing
 
   public subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
@@ -127,7 +130,19 @@ class DataService {
     const queue = this.getQueue();
     queue.push({ id: generateId(), action, entityType, payload, timestamp: new Date().toISOString() });
     this.setStorage("sync_queue", queue);
-    this.triggerSync();
+    this.debouncedSync();
+  }
+
+  // Debounced sync — collapses rapid sequential writes into a single API call
+  private debouncedSync() {
+    if (typeof window === "undefined") return;
+    if (this.syncDebounceTimer) {
+      clearTimeout(this.syncDebounceTimer);
+    }
+    this.syncDebounceTimer = setTimeout(() => {
+      this.syncDebounceTimer = null;
+      this.triggerSync();
+    }, this.SYNC_DEBOUNCE_MS);
   }
 
   constructor() {
@@ -182,11 +197,11 @@ class DataService {
       });
 
       if (response.ok) {
-        // Sync completed successfully, clear queue
-        this.setStorage("sync_queue", []);
+        // Sync completed — clear the queue. Do NOT fetchFromServer here:
+        // that would trigger setStorage → emitChange → re-renders → potential
+        // feedback loops. Server pull only happens on explicit startup/refresh.
+        localStorage.setItem("sync_queue", JSON.stringify([]));
         console.log("Background sync completed successfully!");
-        // Refresh local cache with clean server state
-        await this.fetchFromServer();
       }
     } catch (e) {
       console.error("Auto sync failed, will retry on next connection change", e);

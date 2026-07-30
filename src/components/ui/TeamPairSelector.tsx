@@ -144,7 +144,7 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
                         {p.name}
                       </div>
                       <div className="text-[11.5px] text-text-dim">
-                        {p.wins} wins · {p.winRate}% WR
+                        {p.wins} wins · {p.winRate.toFixed(0)}% WR
                       </div>
                     </div>
                   </div>
@@ -195,7 +195,7 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
                         {t.name}
                       </div>
                       <div className="text-[11.5px] text-text-dim">
-                        {t.wins} wins · {t.winRate}% WR
+                        {t.wins} wins · {t.winRate.toFixed(0)}% WR
                       </div>
                     </div>
                   </div>

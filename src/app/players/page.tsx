@@ -45,6 +45,26 @@ export default function ManagementPage() {
   const [gameIcon, setGameIcon] = useState("🎮");
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
 
+  // ── Hold-to-rename state ───────────────────────────────────────────────────
+  const [holdTarget, setHoldTarget] = useState<ClientPlayer | null>(null);
+  const [holdProgress, setHoldProgress] = useState(0); // 0-100
+  const holdTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdProgressRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const [blinkingId, setBlinkingId] = useState<string | null>(null);
+
+  // PIN modal
+  const [pinModalPlayer, setPinModalPlayer] = useState<ClientPlayer | null>(null);
+  const [pinValue, setPinValue] = useState("");
+  const [pinError, setPinError] = useState(false);
+
+  // Rename modal
+  const [renamePlayer, setRenamePlayer] = useState<ClientPlayer | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  // Dog gif modal
+  const [showDogGif, setShowDogGif] = useState(false);
+  // ─────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     loadData();
   }, []);
@@ -92,6 +112,95 @@ export default function ManagementPage() {
       loadData();
     }
   };
+
+  // ── Hold-to-rename handlers ───────────────────────────────────────────────
+  const PIN_CODE = "69420";
+  const HOLD_DURATION = 5000;
+
+  const startHold = (player: ClientPlayer) => {
+    if (holdTimerRef.current) return; // already holding
+    setHoldProgress(0);
+
+    // Progress ticker
+    const startTime = Date.now();
+    holdProgressRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      setHoldProgress(Math.min(100, (elapsed / HOLD_DURATION) * 100));
+    }, 50);
+
+    // Main 5s timer
+    holdTimerRef.current = setTimeout(() => {
+      clearInterval(holdProgressRef.current!);
+      holdProgressRef.current = null;
+      holdTimerRef.current = null;
+      setHoldProgress(0);
+
+      // Blink twice
+      setBlinkingId(player._id);
+      setTimeout(() => setBlinkingId(null), 800);
+
+      // Open PIN modal after blink
+      setTimeout(() => {
+        setPinModalPlayer(player);
+        setPinValue("");
+        setPinError(false);
+      }, 900);
+    }, HOLD_DURATION);
+  };
+
+  const cancelHold = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (holdProgressRef.current) {
+      clearInterval(holdProgressRef.current);
+      holdProgressRef.current = null;
+    }
+    setHoldProgress(0);
+  };
+
+  const handlePinSubmit = () => {
+    if (!pinModalPlayer) return;
+
+    if (pinModalPlayer.hasRenamedOnce) {
+      // Name already locked — always show dog gif regardless of PIN
+      setPinModalPlayer(null);
+      setShowDogGif(true);
+      return;
+    }
+
+    if (pinValue === PIN_CODE) {
+      setPinModalPlayer(null);
+      setRenamePlayer(pinModalPlayer);
+      setRenameValue(pinModalPlayer.name);
+    } else {
+      setPinError(true);
+      setPinValue("");
+      setTimeout(() => setPinError(false), 1200);
+    }
+  };
+
+  const handleRenameSubmit = () => {
+    if (!renamePlayer || !renameValue.trim()) return;
+    const newName = renameValue.trim();
+
+    if (players.some((p) => p._id !== renamePlayer._id && p.name.toLowerCase() === newName.toLowerCase())) {
+      showToast("A player with that name already exists", "error");
+      return;
+    }
+
+    dataService.savePlayer({
+      ...renamePlayer,
+      name: newName,
+      hasRenamedOnce: true,
+    });
+    showToast(`Name changed to "${newName}" — this was your one-time rename.`, "success");
+    setRenamePlayer(null);
+    setRenameValue("");
+    loadData();
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleAddGame = (e: React.FormEvent) => {
     e.preventDefault();
@@ -309,12 +418,43 @@ export default function ManagementPage() {
           <div className="flex flex-col gap-2.5">
             {filteredPlayers.length > 0 ? (
               filteredPlayers.map((p) => (
-                <Card key={p._id} className="p-3 border border-border bg-surface rounded-xl flex flex-row items-center gap-3.5">
-                  <PlayerAvatar id={p._id} name={p.name} size="sm" />
+                <Card
+                  key={p._id}
+                  className={`p-3 border border-border bg-surface rounded-xl flex flex-row items-center gap-3.5 select-none transition-all ${
+                    blinkingId === p._id ? "animate-blink" : ""
+                  }`}
+                  style={blinkingId === p._id ? { animation: "blink-card 0.4s ease-in-out 2" } : {}}
+                  onMouseDown={() => startHold(p)}
+                  onMouseUp={cancelHold}
+                  onMouseLeave={cancelHold}
+                  onTouchStart={() => startHold(p)}
+                  onTouchEnd={cancelHold}
+                  onContextMenu={(e) => e.preventDefault()}
+                >
+                  <div className="relative">
+                    <PlayerAvatar id={p._id} name={p.name} size="sm" />
+                    {/* Hold progress ring */}
+                    {holdProgress > 0 && (
+                      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 32 32" style={{ transform: "rotate(-90deg)" }}>
+                        <circle
+                          cx="16" cy="16" r="14"
+                          fill="none"
+                          stroke="var(--color-primary)"
+                          strokeWidth="3"
+                          strokeDasharray={`${(holdProgress / 100) * 88} 88`}
+                          strokeLinecap="round"
+                          opacity="0.8"
+                        />
+                      </svg>
+                    )}
+                  </div>
                   <div className="flex-grow min-w-0">
                     <div className="font-bold text-[14.5px] text-text truncate flex items-center gap-1.5">
                       {p.name}
                       {p.nickname && <span className="text-[11.5px] font-semibold text-accent font-mono">"{p.nickname}"</span>}
+                      {p.hasRenamedOnce && (
+                        <span title="Name locked" className="text-[10px] text-text-faint">🔒</span>
+                      )}
                     </div>
                     <div className="text-[12.5px] text-text-dim mt-0.5">
                       {p.wins} wins · {p.losses} losses · WR {p.winRate.toFixed(0)}%
@@ -322,8 +462,8 @@ export default function ManagementPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleDeletePlayer(p._id, p.name)}
-                    className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-danger hover:text-red transition-all cursor-pointer flex items-center justify-center focus:outline-none"
+                    onClick={(e) => { e.stopPropagation(); handleDeletePlayer(p._id, p.name); }}
+                    className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-danger hover:text-red transition-all cursor-pointer flex items-center justify-center focus:outline-none shrink-0"
                     title="Delete Player"
                   >
                     <Trash2 className="h-4.5 w-4.5" />
@@ -336,6 +476,113 @@ export default function ManagementPage() {
               </div>
             )}
           </div>
+
+          {/* ── PIN modal ─────────────────────────────────────────────────── */}
+          {pinModalPlayer && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div className="bg-surface border border-border rounded-2xl p-6 w-[320px] flex flex-col gap-4 shadow-2xl">
+                <div className="text-center">
+                  <div className="text-[28px] mb-1">🔐</div>
+                  <h2 className="font-display font-bold text-[17px] text-text">Identify Yourself</h2>
+                  <p className="text-[12px] text-text-dim mt-1">
+                    Enter the squad code to {pinModalPlayer.hasRenamedOnce ? "attempt something pointless" : `rename ${pinModalPlayer.name}`}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    value={pinValue}
+                    onChange={(e) => setPinValue(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
+                    placeholder="Enter code..."
+                    autoFocus
+                    className={`w-full rounded-lg border px-4 py-3 bg-surface-2 text-center font-display font-bold text-[18px] tracking-widest outline-none transition-all ${
+                      pinError
+                        ? "border-danger text-danger animate-[shake_0.4s_ease]"
+                        : "border-border text-text focus:border-primary"
+                    }`}
+                  />
+                  {pinError && (
+                    <p className="text-danger text-[11.5px] text-center font-semibold">Wrong code. Try again.</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setPinModalPlayer(null); setPinValue(""); }}
+                    className="flex-1 py-2.5 rounded-lg border border-border text-text-dim font-semibold text-[13px] hover:bg-surface-2 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handlePinSubmit}
+                    className="flex-1 py-2.5 rounded-lg bg-primary text-white font-bold text-[13px] hover:bg-primary-hover transition-all cursor-pointer"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Rename modal ──────────────────────────────────────────────── */}
+          {renamePlayer && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div className="bg-surface border border-border rounded-2xl p-6 w-[320px] flex flex-col gap-4 shadow-2xl">
+                <div className="text-center">
+                  <div className="text-[28px] mb-1">✏️</div>
+                  <h2 className="font-display font-bold text-[17px] text-text">Rename Player</h2>
+                  <p className="text-[12px] text-text-dim mt-1">
+                    You get <span className="text-accent font-bold">one rename</span> per player. Choose wisely.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
+                  placeholder="New name..."
+                  autoFocus
+                  maxLength={32}
+                  className="w-full rounded-lg border border-border px-4 py-3 bg-surface-2 text-text font-display font-bold text-[15px] outline-none focus:border-primary transition-all"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setRenamePlayer(null); setRenameValue(""); }}
+                    className="flex-1 py-2.5 rounded-lg border border-border text-text-dim font-semibold text-[13px] hover:bg-surface-2 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRenameSubmit}
+                    className="flex-1 py-2.5 rounded-lg bg-primary text-white font-bold text-[13px] hover:bg-primary-hover transition-all cursor-pointer"
+                  >
+                    Save Name
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Dog gif modal (rename locked) ────────────────────────────── */}
+          {showDogGif && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm cursor-pointer"
+              onClick={() => setShowDogGif(false)}
+            >
+              <div className="flex flex-col items-center gap-3">
+                <video
+                  src="/dog-gif.mp4"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="max-w-[90vw] max-h-[75vh] rounded-2xl shadow-2xl"
+                />
+                <p className="text-white font-bold text-[13px] opacity-60">This name is locked forever. Tap to dismiss.</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

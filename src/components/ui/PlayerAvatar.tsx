@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import dataService from "@/lib/dataService";
+
 
 export function getInitials(name: string) {
   if (!name) return "?";
@@ -37,16 +37,18 @@ export function getTintClassName(tint: number) {
   }
 }
 
-/** Resolve avatar emoji for a player ID from local storage */
+/** Resolve avatar emoji for a player ID from local storage — only runs client-side */
 function resolveAvatar(id?: string): string | null {
   if (!id || typeof window === "undefined") return null;
   try {
-    const players = dataService.getPlayers();
+    // Lazy require so the dataService module is never evaluated during SSR/static build
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ds = require("@/lib/dataService").default;
+    const players: Array<{ _id: string; avatar?: string }> = ds.getPlayers();
     const player = players.find((p) => p._id === id);
-    // Only return a non-default, non-generic avatar
     if (player?.avatar && player.avatar !== "👤") return player.avatar;
   } catch {
-    // dataService not available (SSR / build time)
+    // dataService not available
   }
   return null;
 }

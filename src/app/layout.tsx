@@ -1,8 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Space_Grotesk, Inter, JetBrains_Mono, Geist } from "next/font/google";
+import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ClientLayout from "@/components/ui/ClientLayout";
-import Script from "next/script";
 import { cn } from "@/lib/utils";
 
 const spaceGrotesk = Space_Grotesk({
@@ -57,18 +56,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         {/* Inline script to prevent theme flashing on load and enforce dark mode */}
-        <Script
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script
           id="theme-stabilizer"
-          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  document.documentElement.setAttribute('data-theme', 'dark');
-                  localStorage.setItem('theme', 'dark');
-                } catch (e) {}
-              })();
-            `,
+            __html: `(function(){try{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('theme','dark');}catch(e){}})();`,
           }}
         />
       </head>
