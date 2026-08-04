@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Trophy, BarChart3, Users, Settings, RefreshCw, Check, CloudLightning } from "lucide-react";
-import { ToastProvider, useToast } from "./Toast";
+import { Home, Trophy, BarChart3, Users, Settings } from "lucide-react";
+import { ToastProvider } from "./Toast";
 import dataService from "@/lib/dataService";
 
 const navItems = [
@@ -46,38 +46,6 @@ const Navigation: React.FC = () => {
 
 const Header: React.FC = () => {
   const pathname = usePathname();
-  const [online, setOnline] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const { showToast } = useToast();
-
-  useEffect(() => {
-    setOnline(navigator.onLine);
-    const handleOnline = () => setOnline(true);
-    const handleOffline = () => setOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  const handleManualSync = async () => {
-    if (!online || isSyncing) return;
-    setIsSyncing(true);
-    try {
-      showToast("Syncing data with server...", "info");
-      await dataService.triggerSync();
-      await dataService.fetchFromServer();
-      showToast("Synchronization complete!", "success");
-    } catch (error) {
-      showToast("Synchronization failed.", "error");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   return (
     <header className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-border/40 bg-surface/90 backdrop-blur-md sticky top-0 z-40">
@@ -98,52 +66,8 @@ const Header: React.FC = () => {
         {pathname.startsWith("/matches") && "Scoring Round"}
       </div>
 
-      {/* Sync Badge trigger (no theme toggle, keeping exclusively dark theme) */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handleManualSync}
-          disabled={!online || isSyncing}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-full border transition-all text-[10.5px] font-semibold tracking-wider font-mono cursor-pointer disabled:opacity-85 focus:outline-none ${
-            isSyncing
-              ? "bg-[#45D999]/10 text-success border-[#45D999]/30"
-              : online
-              ? "bg-[#45D999]/10 text-success border-[#45D999]/30"
-              : "bg-[#F2B84B]/10 text-accent border-[#F2B84B]/30"
-          }`}
-          title={online ? "Sync Data" : "Offline"}
-          aria-label="Sync status"
-        >
-          {isSyncing ? (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-          ) : online ? (
-            <Check className="h-3.5 w-3.5 text-success stroke-[2.5]" />
-          ) : (
-            <CloudLightning className="h-3.5 w-3.5 text-accent" />
-          )}
-          <span>{isSyncing ? "SYNCING" : online ? "SYNCED" : "OFFLINE"}</span>
-        </button>
-      </div>
     </header>
   );
-};
-
-const ServiceWorkerRegistrar: React.FC = () => {
-  useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker
-          .register("/sw.js")
-          .then((registration) => {
-            console.log("Service Worker registered with scope:", registration.scope);
-          })
-          .catch((error) => {
-            console.error("Service Worker registration failed:", error);
-          });
-      });
-    }
-  }, []);
-
-  return null;
 };
 
 interface ClientLayoutProps {
@@ -214,7 +138,6 @@ const ClientLayoutContent: React.FC<ClientLayoutProps> = ({ children }) => {
         <Navigation />
       </div>
 
-      <ServiceWorkerRegistrar />
     </div>
   );
 };

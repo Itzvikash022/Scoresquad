@@ -108,9 +108,9 @@ export default function TournamentsPage() {
     }
   };
 
-  const handleCreateTeamPair = (p1Id: string, p2Id: string) => {
+  const handleCreateTeamPair = async (p1Id: string, p2Id: string) => {
     try {
-      const newTeam = dataService.getOrCreateTeam([p1Id, p2Id]);
+      const newTeam = await dataService.getOrCreateTeam([p1Id, p2Id]);
       setTeams(dataService.getTeams()); // Reload
       if (!selectedParticipantIds.includes(newTeam._id)) {
         setSelectedParticipantIds((prev) => [...prev, newTeam._id]);
@@ -121,7 +121,7 @@ export default function TournamentsPage() {
     }
   };
 
-  const handleStartTournament = () => {
+  const handleStartTournament = async () => {
     if (!tournyName.trim()) {
       showToast("Tournament name is required", "error");
       return;
@@ -140,7 +140,7 @@ export default function TournamentsPage() {
     }
 
     try {
-      const tourny = dataService.createTournament(
+      const tourny = await dataService.createTournament(
         tournyName.trim(),
         gamesCount,
         format,
@@ -161,7 +161,7 @@ export default function TournamentsPage() {
     }
   };
 
-  const handleUpdateFixtureMatchup = (fixtureId: string, newP1: string, newP2: string) => {
+  const handleUpdateFixtureMatchup = async (fixtureId: string, newP1: string, newP2: string) => {
     if (!activeTournament) return;
     if (newP1 === newP2) {
       showToast("Lineup participants must be different!", "error");
@@ -174,7 +174,7 @@ export default function TournamentsPage() {
     if (fixIdx !== -1) {
       updated.bracket.fixtures[fixIdx].p1 = newP1;
       updated.bracket.fixtures[fixIdx].p2 = newP2;
-      dataService.saveTournament(updated);
+      await dataService.saveTournament(updated);
       setActiveTournament(updated);
       showToast("Lineup updated!", "success");
     }
@@ -220,7 +220,7 @@ export default function TournamentsPage() {
     });
   };
 
-  const handleSaveFixtureGameScore = (fixtureId: string, gameIdx: number) => {
+  const handleSaveFixtureGameScore = async (fixtureId: string, gameIdx: number) => {
     if (!activeTournament) return;
     const fixturesList = activeTournament.bracket?.fixtures || [];
     const fixIdx = fixturesList.findIndex((f: any) => f.id === fixtureId);
@@ -266,7 +266,7 @@ export default function TournamentsPage() {
 
     // Save global Match log
     try {
-      dataService.saveMatch({
+      await dataService.saveMatch({
         game: activeTournament.games[0] || "",
         matchType: updated.isTeamMode ? "Team Match" : "Solo",
         players: playersArr,
@@ -399,7 +399,7 @@ export default function TournamentsPage() {
       }
     }
 
-    dataService.saveTournament(updated);
+    await dataService.saveTournament(updated);
     setActiveTournament(updated);
     showToast("Game score logged inline!", "success");
     
@@ -414,7 +414,7 @@ export default function TournamentsPage() {
     loadData();
   };
 
-  const handleEndTournament = () => {
+  const handleEndTournament = async () => {
     if (!activeTournament) return;
     if (window.confirm("End this tournament and declare the winners based on the standings?")) {
       const sorted = Object.entries(activeTournament.standings)
@@ -453,7 +453,7 @@ export default function TournamentsPage() {
         runnerUp: runnerId,
       };
 
-      dataService.saveTournament(updated);
+      await dataService.saveTournament(updated);
       showToast(`Tournament finished! Champion: ${champName}`, "success");
       
       setWrappedSummary({

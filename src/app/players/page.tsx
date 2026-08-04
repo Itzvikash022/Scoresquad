@@ -75,7 +75,7 @@ export default function ManagementPage() {
   };
 
   // Form handlers
-  const handleAddPlayer = (e: React.FormEvent) => {
+  const handleAddPlayer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!playerName.trim()) {
       showToast("Player name is required", "error");
@@ -88,7 +88,7 @@ export default function ManagementPage() {
     }
 
     try {
-      dataService.savePlayer({
+      await dataService.savePlayer({
         name: playerName.trim(),
         nickname: playerNickname.trim() || undefined,
         avatar: playerAvatar,
@@ -105,11 +105,15 @@ export default function ManagementPage() {
     }
   };
 
-  const handleDeletePlayer = (id: string, name: string) => {
+  const handleDeletePlayer = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete ${name}? All statistics for this player will be removed.`)) {
-      dataService.deletePlayer(id);
-      showToast(`Player ${name} deleted`, "info");
-      loadData();
+      try {
+        await dataService.deletePlayer(id);
+        showToast(`Player ${name} deleted`, "info");
+        loadData();
+      } catch (err: any) {
+        showToast("Failed to delete player", "error");
+      }
     }
   };
 
@@ -181,7 +185,7 @@ export default function ManagementPage() {
     }
   };
 
-  const handleRenameSubmit = () => {
+  const handleRenameSubmit = async () => {
     if (!renamePlayer || !renameValue.trim()) return;
     const newName = renameValue.trim();
 
@@ -190,19 +194,23 @@ export default function ManagementPage() {
       return;
     }
 
-    dataService.savePlayer({
-      ...renamePlayer,
-      name: newName,
-      hasRenamedOnce: true,
-    });
-    showToast(`Name changed to "${newName}" — this was your one-time rename.`, "success");
-    setRenamePlayer(null);
-    setRenameValue("");
-    loadData();
+    try {
+      await dataService.savePlayer({
+        ...renamePlayer,
+        name: newName,
+        hasRenamedOnce: true,
+      });
+      showToast(`Name changed to "${newName}" — this was your one-time rename.`, "success");
+      setRenamePlayer(null);
+      setRenameValue("");
+      loadData();
+    } catch (err: any) {
+      showToast("Failed to rename player", "error");
+    }
   };
   // ─────────────────────────────────────────────────────────────────────────
 
-  const handleAddGame = (e: React.FormEvent) => {
+  const handleAddGame = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!gameName.trim()) {
       showToast("Game name is required", "error");
@@ -220,7 +228,7 @@ export default function ManagementPage() {
     }
 
     try {
-      dataService.saveGame({
+      await dataService.saveGame({
         _id: editingGameId || undefined,
         name: gameName.trim(),
         icon: gameIcon,
@@ -244,48 +252,18 @@ export default function ManagementPage() {
     setIsGameDialogOpen(true);
   };
 
-  const handleDeleteGame = (id: string, name: string) => {
+  const handleDeleteGame = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete ${name}? All local logs for this game will be cleared.`)) {
-      dataService.deleteGame(id);
-      showToast(`Game ${name} deleted`, "info");
-      loadData();
+      try {
+        await dataService.deleteGame(id);
+        showToast(`Game ${name} deleted`, "info");
+        loadData();
+      } catch (err: any) {
+        showToast("Failed to delete game", "error");
+      }
     }
   };
 
-  const handleExport = () => {
-    try {
-      const dataStr = dataService.exportData();
-      const dataUri = "data:application/json;charset=utf-8," + encodeURIComponent(dataStr);
-      const filename = `scoresquad_backup_${new Date().toISOString().slice(0, 10)}.json`;
-      
-      const linkElement = document.createElement("a");
-      linkElement.setAttribute("href", dataUri);
-      linkElement.setAttribute("download", filename);
-      linkElement.click();
-      showToast("Backup exported successfully!", "success");
-    } catch {
-      showToast("Failed to export backup", "error");
-    }
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileReader = new FileReader();
-    if (e.target.files && e.target.files[0]) {
-      fileReader.readAsText(e.target.files[0], "UTF-8");
-      fileReader.onload = (event) => {
-        const target = event.target;
-        if (target && typeof target.result === "string") {
-          const success = dataService.importData(target.result);
-          if (success) {
-            showToast("Backup restored successfully!", "success");
-            loadData();
-          } else {
-            showToast("Invalid backup file format", "error");
-          }
-        }
-      };
-    }
-  };
 
   const handleFactoryReset = () => {
     if (window.confirm("WARNING: This will delete ALL local scores, matches, players, and configurations. This action is final. Proceed?")) {
@@ -713,37 +691,7 @@ export default function ManagementPage() {
 
       {/* 3. SETTINGS & APP INFO SECTION */}
       {activeTab === "settings" && (
-        <div className="flex flex-col gap-4 fade-in">
-          <h2 className="mono-label text-text-faint text-[10.5px] uppercase mt-2">Data Backup &amp; Sync</h2>
-          
-          <Card className="p-4 border-border bg-surface rounded-xl flex flex-row items-center justify-between">
-            <div className="flex flex-col gap-1 pr-4">
-              <h3 className="font-bold text-[14.5px] text-text">Export Local Backup</h3>
-              <p className="text-[12px] text-text-dim leading-relaxed">
-                Download all scores, profiles, and history as a JSON file.
-              </p>
-            </div>
-            <Button variant="outline" onClick={handleExport} className="border-border bg-surface-2 hover:bg-surface-3 font-semibold text-[13px] flex items-center gap-1.5 py-4.5 px-4 shrink-0">
-              <Download className="h-4 w-4" /> Export
-            </Button>
-          </Card>
-
-          <Card className="p-4 border-border bg-surface rounded-xl flex flex-row items-center justify-between">
-            <div className="flex flex-col gap-1 pr-4">
-              <h3 className="font-bold text-[14.5px] text-text">Restore Backup</h3>
-              <p className="text-[12px] text-text-dim leading-relaxed">
-                Upload a previously exported JSON file to restore app data.
-              </p>
-            </div>
-            <div className="relative overflow-hidden inline-block shrink-0">
-              <Button variant="outline" className="border-border bg-surface-2 hover:bg-surface-3 font-semibold text-[13px] flex items-center gap-1.5 py-4.5 px-4">
-                <Upload className="h-4 w-4" /> Import
-              </Button>
-              <input type="file" accept=".json" onChange={handleImport} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-            </div>
-          </Card>
-
-          <h2 className="mono-label text-danger text-[10.5px] uppercase mt-3">Danger Zone</h2>
+        <div className="flex flex-col gap-4 fade-in">          <h2 className="mono-label text-danger text-[10.5px] uppercase mt-3">Danger Zone</h2>
           <Card className="p-4 border-danger/35 bg-danger/[0.03] rounded-xl flex flex-row items-center justify-between">
             <div className="flex flex-col gap-1 pr-4">
               <h3 className="font-bold text-[14.5px] text-text">Factory Reset</h3>
@@ -764,7 +712,7 @@ export default function ManagementPage() {
             </div>
             <div className="flex items-start gap-2 text-[12.5px] text-text-dim leading-relaxed">
               <HelpCircle className="h-4.5 w-4.5 text-text-faint mt-0.5 shrink-0" />
-              <span>Supports offline game sessions and MongoDB synchronization.</span>
+              <span>Connected to API with remote database.</span>
             </div>
           </div>
         </div>

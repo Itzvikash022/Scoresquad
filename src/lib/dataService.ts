@@ -1,6 +1,6 @@
 "use client";
 
-// Client-side Local-First Data Service with Offline Sync Queue
+// Client-side API-First Data Service with In-Memory Caching
 
 export interface ClientPlayer {
   _id: string;
@@ -14,7 +14,7 @@ export interface ClientPlayer {
   winRate: number;
   recentForm: string[];
   createdAt?: string;
-  hasRenamedOnce?: boolean; // One-time rename token — once used, name is permanently locked
+  hasRenamedOnce?: boolean;
 }
 
 export interface ClientGame {
@@ -68,19 +68,27 @@ export interface ClientTournament {
   contributesToStats: boolean;
 }
 
-// Helper to generate Unique IDs on client
+// Helper to generate Unique IDs on client for initial creation before DB sync
 const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-
-// Initial Mock Seed Data (set to empty arrays to start blank)
-const DEFAULT_PLAYERS: ClientPlayer[] = [];
-const DEFAULT_GAMES: ClientGame[] = [];
-const DEFAULT_TEAMS: ClientTeam[] = [];
-const DEFAULT_MATCHES: ClientMatch[] = [];
 
 class DataService {
   private listeners: (() => void)[] = [];
-  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly SYNC_DEBOUNCE_MS = 3000; // Wait 3s of inactivity before syncing
+  
+  private memoryCache: {
+    players: ClientPlayer[];
+    games: ClientGame[];
+    teams: ClientTeam[];
+    matches: ClientMatch[];
+    tournaments: ClientTournament[];
+  } = {
+    players: [],
+    games: [],
+    teams: [],
+    matches: [],
+    tournaments: []
+  };
+
+  public isLoaded = false;
 
   public subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
@@ -99,190 +107,64 @@ class DataService {
     });
   }
 
-  private getStorage<T>(key: string, defaultValue: T): T {
-    if (typeof window === "undefined") return defaultValue;
-    const value = localStorage.getItem(key);
-    if (!value) {
-      this.setStorage(key, defaultValue);
-      return defaultValue;
-    }
-    try {
-      const parsed = JSON.parse(value);
-      return parsed !== null && parsed !== undefined ? parsed : defaultValue;
-    } catch {
-      return defaultValue;
-    }
-  }
-
-  private setStorage<T>(key: string, value: T): void {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(key, JSON.stringify(value));
-      this.emitChange();
-    }
-  }
-
-  // Sync Queue management
-  private getQueue(): any[] {
-    return this.getStorage("sync_queue", []);
-  }
-
-  private addToQueue(action: string, entityType: string, payload: any) {
-    const queue = this.getQueue();
-    queue.push({ id: generateId(), action, entityType, payload, timestamp: new Date().toISOString() });
-    this.setStorage("sync_queue", queue);
-    this.debouncedSync();
-  }
-
-  // Debounced sync — collapses rapid sequential writes into a single API call
-  private debouncedSync() {
+  private async pushToApi(action: string, entityType: string, payload: any) {
     if (typeof window === "undefined") return;
-    if (this.syncDebounceTimer) {
-      clearTimeout(this.syncDebounceTimer);
+    try {
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queue: [{ action, entityType, payload }] }),
+      });
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+    } catch (e) {
+      console.error("API push failed:", e);
+      throw e;
     }
-    this.syncDebounceTimer = setTimeout(() => {
-      this.syncDebounceTimer = null;
-      this.triggerSync();
-    }, this.SYNC_DEBOUNCE_MS);
   }
 
   constructor() {
-    // Initialize LocalStorage with seed data if empty
     if (typeof window !== "undefined") {
-      if (!localStorage.getItem("players")) this.setStorage("players", DEFAULT_PLAYERS);
-      if (!localStorage.getItem("games")) this.setStorage("games", DEFAULT_GAMES);
-      if (!localStorage.getItem("teams")) this.setStorage("teams", DEFAULT_TEAMS);
-      if (!localStorage.getItem("matches")) this.setStorage("matches", DEFAULT_MATCHES);
-      if (!localStorage.getItem("tournaments")) this.setStorage("tournaments", []);
-
-      // Pull updates from MongoDB server in background on startup if online
-      if (navigator.onLine) {
-        this.fetchFromServer();
-      }
-
-      // Hook network online listener to auto-sync
-      window.addEventListener("online", () => this.triggerSync());
+      this.fetchFromServer();
     }
   }
 
-  // Pull all data from server and overwrite local storage, removing items not in DB
   public async fetchFromServer() {
     try {
       const response = await fetch("/api/sync");
       if (response.ok) {
         const data = await response.json();
-        // Always set data from server, even if empty (to sync deletions)
-        this.setStorage("players", Array.isArray(data.players) ? data.players : []);
-        this.setStorage("games", Array.isArray(data.games) ? data.games : []);
-        this.setStorage("teams", Array.isArray(data.teams) ? data.teams : []);
-        this.setStorage("matches", Array.isArray(data.matches) ? data.matches : []);
-        this.setStorage("tournaments", Array.isArray(data.tournaments) ? data.tournaments : []);
+        this.memoryCache.players = Array.isArray(data.players) ? data.players : [];
+        this.memoryCache.games = Array.isArray(data.games) ? data.games : [];
+        this.memoryCache.teams = Array.isArray(data.teams) ? data.teams : [];
+        this.memoryCache.matches = Array.isArray(data.matches) ? data.matches : [];
+        this.memoryCache.tournaments = Array.isArray(data.tournaments) ? data.tournaments : [];
+        
+        this.recalculateAllStats();
+        this.isLoaded = true;
+        this.emitChange();
         console.log("Local cache synced with database.");
       }
     } catch (e) {
-      console.warn("Could not fetch sync updates from server, running fully offline.", e);
-    }
-  }
-
-  // Push local queue changes to server
-  public async triggerSync() {
-    if (typeof window === "undefined" || !navigator.onLine) return;
-    const queue = this.getQueue();
-    if (queue.length === 0) return;
-
-    try {
-      const response = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queue }),
-      });
-
-      if (response.ok) {
-        // Sync completed — clear the queue. Do NOT fetchFromServer here:
-        // that would trigger setStorage → emitChange → re-renders → potential
-        // feedback loops. Server pull only happens on explicit startup/refresh.
-        localStorage.setItem("sync_queue", JSON.stringify([]));
-        console.log("Background sync completed successfully!");
-      }
-    } catch (e) {
-      console.error("Auto sync failed, will retry on next connection change", e);
-      throw e;
-    }
-  }
-
-  // BACKUP & RESTORE
-  public exportData(): string {
-    const data = {
-      players: this.getStorage<ClientPlayer[]>("players", []),
-      games: this.getStorage<ClientGame[]>("games", []),
-      teams: this.getStorage<ClientTeam[]>("teams", []),
-      matches: this.getStorage<ClientMatch[]>("matches", []),
-      tournaments: this.getStorage<ClientTournament[]>("tournaments", []),
-    };
-    return JSON.stringify(data, null, 2);
-  }
-
-  public importData(jsonString: string): boolean {
-    try {
-      const data = JSON.parse(jsonString);
-      if (
-        Array.isArray(data.players) &&
-        Array.isArray(data.games) &&
-        Array.isArray(data.teams) &&
-        Array.isArray(data.matches) &&
-        Array.isArray(data.tournaments)
-      ) {
-        this.setStorage("players", data.players);
-        this.setStorage("games", data.games);
-        this.setStorage("teams", data.teams);
-        this.setStorage("matches", data.matches);
-        this.setStorage("tournaments", data.tournaments);
-        
-        // Push batch sync event
-        this.addToQueue("IMPORT", "ALL", data);
-        this.recalculateAllStats();
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  public resetAllData() {
-    this.setStorage("players", DEFAULT_PLAYERS);
-    this.setStorage("games", DEFAULT_GAMES);
-    this.setStorage("teams", DEFAULT_TEAMS);
-    this.setStorage("matches", DEFAULT_MATCHES);
-    this.setStorage("tournaments", []);
-    this.setStorage("sync_queue", []);
-    if (navigator.onLine) {
-      fetch("/api/sync?reset=true", { method: "DELETE" }).catch(() => {});
+      console.error("Could not fetch updates from server.", e);
     }
   }
 
   // PLAYERS CRUD
   public getPlayers(): ClientPlayer[] {
-    return this.getStorage<ClientPlayer[]>("players", []).sort((a, b) => b.totalPoints - a.totalPoints);
+    return [...this.memoryCache.players].sort((a, b) => b.totalPoints - a.totalPoints);
   }
 
-  public savePlayer(player: Omit<ClientPlayer, "_id" | "totalPoints" | "matches" | "wins" | "losses" | "winRate" | "recentForm"> & { _id?: string }): ClientPlayer {
-    const players = this.getStorage<ClientPlayer[]>("players", []);
+  public async savePlayer(player: Omit<ClientPlayer, "_id" | "totalPoints" | "matches" | "wins" | "losses" | "winRate" | "recentForm"> & { _id?: string }): Promise<ClientPlayer> {
+    const isNew = !player._id;
+    const _id = player._id || generateId();
     let savedPlayer: ClientPlayer;
 
-    if (player._id) {
-      // Update existing
-      players.forEach((p, idx) => {
-        if (p._id === player._id) {
-          players[idx] = { ...p, ...player };
-          savedPlayer = players[idx];
-        }
-      });
-      savedPlayer! = savedPlayer! || { ...player, _id: player._id, totalPoints: 0, matches: 0, wins: 0, losses: 0, winRate: 0, recentForm: [] };
-    } else {
-      // Create new
+    if (isNew) {
       savedPlayer = {
         ...player,
-        _id: generateId(),
+        _id,
         totalPoints: 0,
         matches: 0,
         wins: 0,
@@ -291,72 +173,79 @@ class DataService {
         recentForm: [],
         createdAt: new Date().toISOString(),
       };
-      players.push(savedPlayer);
+      this.memoryCache.players.push(savedPlayer);
+    } else {
+      const idx = this.memoryCache.players.findIndex((p) => p._id === _id);
+      if (idx !== -1) {
+        this.memoryCache.players[idx] = { ...this.memoryCache.players[idx], ...player };
+        savedPlayer = this.memoryCache.players[idx];
+      } else {
+        savedPlayer = { ...player, _id, totalPoints: 0, matches: 0, wins: 0, losses: 0, winRate: 0, recentForm: [] };
+        this.memoryCache.players.push(savedPlayer);
+      }
     }
 
-    this.setStorage("players", players);
-    this.addToQueue(player._id ? "UPDATE" : "CREATE", "PLAYER", savedPlayer);
+    await this.pushToApi(isNew ? "CREATE" : "UPDATE", "PLAYER", savedPlayer);
+    this.emitChange();
     return savedPlayer;
   }
 
-  public deletePlayer(id: string): void {
-    const players = this.getStorage<ClientPlayer[]>("players", []).filter((p) => p._id !== id);
-    this.setStorage("players", players);
-    this.addToQueue("DELETE", "PLAYER", { _id: id });
+  public async deletePlayer(id: string): Promise<void> {
+    this.memoryCache.players = this.memoryCache.players.filter((p) => p._id !== id);
     this.recalculateAllStats();
+    await this.pushToApi("DELETE", "PLAYER", { _id: id });
+    this.emitChange();
   }
 
   // GAMES CRUD
   public getGames(): ClientGame[] {
-    return this.getStorage<ClientGame[]>("games", []).sort((a, b) => b.totalMatchesPlayed - a.totalMatchesPlayed);
+    return [...this.memoryCache.games].sort((a, b) => b.totalMatchesPlayed - a.totalMatchesPlayed);
   }
 
-  public saveGame(game: Omit<ClientGame, "_id" | "totalMatchesPlayed"> & { _id?: string }): ClientGame {
-    const games = this.getStorage<ClientGame[]>("games", []);
+  public async saveGame(game: Omit<ClientGame, "_id" | "totalMatchesPlayed"> & { _id?: string }): Promise<ClientGame> {
+    const isNew = !game._id;
+    const _id = game._id || generateId();
     let savedGame: ClientGame;
 
-    if (game._id) {
-      games.forEach((g, idx) => {
-        if (g._id === game._id) {
-          games[idx] = { ...g, ...game };
-          savedGame = games[idx];
-        }
-      });
-      savedGame! = savedGame! || { ...game, _id: game._id, totalMatchesPlayed: 0 };
+    if (isNew) {
+      savedGame = { ...game, _id, totalMatchesPlayed: 0 };
+      this.memoryCache.games.push(savedGame);
     } else {
-      savedGame = { ...game, _id: generateId(), totalMatchesPlayed: 0 };
-      games.push(savedGame);
+      const idx = this.memoryCache.games.findIndex((g) => g._id === _id);
+      if (idx !== -1) {
+        this.memoryCache.games[idx] = { ...this.memoryCache.games[idx], ...game };
+        savedGame = this.memoryCache.games[idx];
+      } else {
+        savedGame = { ...game, _id, totalMatchesPlayed: 0 };
+        this.memoryCache.games.push(savedGame);
+      }
     }
 
-    this.setStorage("games", games);
-    this.addToQueue(game._id ? "UPDATE" : "CREATE", "GAME", savedGame);
+    await this.pushToApi(isNew ? "CREATE" : "UPDATE", "GAME", savedGame);
+    this.emitChange();
     return savedGame;
   }
 
-  public deleteGame(id: string): void {
-    const games = this.getStorage<ClientGame[]>("games", []).filter((g) => g._id !== id);
-    this.setStorage("games", games);
-    this.addToQueue("DELETE", "GAME", { _id: id });
+  public async deleteGame(id: string): Promise<void> {
+    this.memoryCache.games = this.memoryCache.games.filter((g) => g._id !== id);
     this.recalculateAllStats();
+    await this.pushToApi("DELETE", "GAME", { _id: id });
+    this.emitChange();
   }
 
   // TEAMS CRUD
   public getTeams(): ClientTeam[] {
-    return this.getStorage<ClientTeam[]>("teams", []).sort((a, b) => b.points - a.points);
+    return [...this.memoryCache.teams].sort((a, b) => b.points - a.points);
   }
 
-  public getOrCreateTeam(memberIds: string[]): ClientTeam {
+  public async getOrCreateTeam(memberIds: string[]): Promise<ClientTeam> {
     const sortedIds = [...memberIds].sort();
     const key = sortedIds.join(",");
-    const teams = this.getTeams();
-    const existingTeam = teams.find((t) => t.key === key);
+    const existingTeam = this.memoryCache.teams.find((t) => t.key === key);
 
     if (existingTeam) return existingTeam;
 
-    // Create a new combination team record
-    const players = this.getPlayers();
-    const memberNames = sortedIds.map((id) => players.find((p) => p._id === id)?.name || "Player").join(" & ");
-
+    const memberNames = sortedIds.map((id) => this.memoryCache.players.find((p) => p._id === id)?.name || "Player").join(" & ");
     const newTeam: ClientTeam = {
       _id: generateId(),
       key,
@@ -369,141 +258,96 @@ class DataService {
       recentForm: [],
     };
 
-    teams.push(newTeam);
-    this.setStorage("teams", teams);
-    this.addToQueue("CREATE", "TEAM", newTeam);
+    this.memoryCache.teams.push(newTeam);
+    await this.pushToApi("CREATE", "TEAM", newTeam);
+    this.emitChange();
     return newTeam;
   }
 
-  // MATCHES CRUD & STATS UPDATING
+  // MATCHES CRUD
   public getMatches(): ClientMatch[] {
-    return this.getStorage<ClientMatch[]>("matches", []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return [...this.memoryCache.matches].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
-  public saveMatch(match: Omit<ClientMatch, "_id" | "date"> & { _id?: string; date?: string }): ClientMatch {
-    const matches = this.getStorage<ClientMatch[]>("matches", []);
+  public async saveMatch(match: Omit<ClientMatch, "_id" | "date"> & { _id?: string; date?: string }): Promise<ClientMatch> {
+    const isNew = !match._id;
+    const _id = match._id || generateId();
+    const rId = match.roundId || _id;
     let savedMatch: ClientMatch;
 
-    const id = match._id || generateId();
-    const rId = match.roundId || id;
-
-    if (match._id) {
-      const idx = matches.findIndex((m) => m._id === match._id);
-      if (idx !== -1) {
-        savedMatch = {
-          ...matches[idx],
-          ...match,
-          roundId: rId,
-          _id: match._id,
-          date: match.date || matches[idx].date || new Date().toISOString(),
-        };
-        matches[idx] = savedMatch;
-      } else {
-        savedMatch = {
-          ...match,
-          roundId: rId,
-          _id: match._id,
-          date: match.date || new Date().toISOString(),
-        } as ClientMatch;
-        matches.push(savedMatch);
-      }
-      this.setStorage("matches", matches);
-      this.addToQueue("UPDATE", "MATCH", savedMatch);
+    if (isNew) {
+      savedMatch = { ...match, roundId: rId, _id, date: match.date || new Date().toISOString() } as ClientMatch;
+      this.memoryCache.matches.push(savedMatch);
     } else {
-      savedMatch = {
-        ...match,
-        roundId: rId,
-        _id: id,
-        date: new Date().toISOString(),
-      } as ClientMatch;
-      matches.push(savedMatch);
-      this.setStorage("matches", matches);
-      this.addToQueue("CREATE", "MATCH", savedMatch);
+      const idx = this.memoryCache.matches.findIndex((m) => m._id === _id);
+      if (idx !== -1) {
+        savedMatch = { ...this.memoryCache.matches[idx], ...match, roundId: rId, _id, date: match.date || this.memoryCache.matches[idx].date || new Date().toISOString() };
+        this.memoryCache.matches[idx] = savedMatch;
+      } else {
+        savedMatch = { ...match, roundId: rId, _id, date: match.date || new Date().toISOString() } as ClientMatch;
+        this.memoryCache.matches.push(savedMatch);
+      }
     }
 
-    // Rebuild all statistics
     this.recalculateAllStats();
 
-    // Sync with tournament if needed
     if (savedMatch.isTournamentMatch && savedMatch.tournament) {
-      this.syncTournamentFromMatches(savedMatch.tournament);
+      await this.syncTournamentFromMatches(savedMatch.tournament);
     }
 
+    await this.pushToApi(isNew ? "CREATE" : "UPDATE", "MATCH", savedMatch);
+    this.emitChange();
     return savedMatch;
   }
 
-  public deleteMatch(matchId: string) {
-    const matches = this.getStorage<ClientMatch[]>("matches", []);
-    const matchToDelete = matches.find((m) => m._id === matchId);
+  public async deleteMatch(matchId: string): Promise<void> {
+    const matchToDelete = this.memoryCache.matches.find((m) => m._id === matchId);
     if (!matchToDelete) return;
 
-    const filtered = matches.filter((m) => m._id !== matchId);
-    this.setStorage("matches", filtered);
-    this.addToQueue("DELETE", "MATCH", { _id: matchId });
-
+    this.memoryCache.matches = this.memoryCache.matches.filter((m) => m._id !== matchId);
     this.recalculateAllStats();
 
     if (matchToDelete.isTournamentMatch && matchToDelete.tournament) {
-      this.syncTournamentFromMatches(matchToDelete.tournament);
+      await this.syncTournamentFromMatches(matchToDelete.tournament);
     }
+
+    await this.pushToApi("DELETE", "MATCH", { _id: matchId });
+    this.emitChange();
   }
 
-  public deleteRound(roundId: string) {
-    const matches = this.getStorage<ClientMatch[]>("matches", []);
-    const matchesToDelete = matches.filter((m) => (m.roundId || m._id) === roundId);
+  public async deleteRound(roundId: string): Promise<void> {
+    const matchesToDelete = this.memoryCache.matches.filter((m) => (m.roundId || m._id) === roundId);
     if (matchesToDelete.length === 0) return;
 
-    const filtered = matches.filter((m) => (m.roundId || m._id) !== roundId);
-    this.setStorage("matches", filtered);
+    this.memoryCache.matches = this.memoryCache.matches.filter((m) => (m.roundId || m._id) !== roundId);
+    this.recalculateAllStats();
 
     const tournamentIdsToSync = new Set<string>();
-
-    matchesToDelete.forEach((m) => {
-      this.addToQueue("DELETE", "MATCH", { _id: m._id });
+    for (const m of matchesToDelete) {
       if (m.isTournamentMatch && m.tournament) {
         tournamentIdsToSync.add(m.tournament);
       }
-    });
+      await this.pushToApi("DELETE", "MATCH", { _id: m._id });
+    }
 
-    this.recalculateAllStats();
+    for (const tId of tournamentIdsToSync) {
+      await this.syncTournamentFromMatches(tId);
+    }
 
-    tournamentIdsToSync.forEach((tId) => {
-      this.syncTournamentFromMatches(tId);
-    });
+    this.emitChange();
   }
 
-  // Dynamic Full Stats Recalculator from Scratch
+  // Dynamic Full Stats Recalculator
   public recalculateAllStats() {
-    const players = this.getStorage<ClientPlayer[]>("players", []);
-    const games = this.getStorage<ClientGame[]>("games", []);
-    const teams = this.getStorage<ClientTeam[]>("teams", []);
-    const matches = this.getStorage<ClientMatch[]>("matches", []).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const players = this.memoryCache.players;
+    const games = this.memoryCache.games;
+    const teams = this.memoryCache.teams;
+    const matches = [...this.memoryCache.matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // 1. Reset Players
-    players.forEach((p) => {
-      p.totalPoints = 0;
-      p.matches = 0;
-      p.wins = 0;
-      p.losses = 0;
-      p.winRate = 0;
-      p.recentForm = [];
-    });
+    players.forEach((p) => { p.totalPoints = 0; p.matches = 0; p.wins = 0; p.losses = 0; p.winRate = 0; p.recentForm = []; });
+    teams.forEach((t) => { t.games = 0; t.wins = 0; t.points = 0; t.winRate = 0; t.recentForm = []; });
+    games.forEach((g) => { g.totalMatchesPlayed = 0; });
 
-    // 2. Reset Teams
-    teams.forEach((t) => {
-      t.games = 0;
-      t.wins = 0;
-      t.points = 0;
-      t.winRate = 0;
-      t.recentForm = [];
-    });
-
-    // 3. Reset Games
-    games.forEach((g) => {
-      g.totalMatchesPlayed = 0;
-    });
-
-    // 4. Process matches in chronological order to build stats
     matches.forEach((match) => {
       const gameObj = games.find((g) => g._id === match.game);
       if (gameObj) gameObj.totalMatchesPlayed += 1;
@@ -518,15 +362,10 @@ class DataService {
 
           teamObj.games += 1;
           teamObj.points += score;
-          if (isWinner) {
-            teamObj.wins += 1;
-            teamObj.recentForm.push("W");
-          } else {
-            teamObj.recentForm.push("L");
-          }
+          if (isWinner) { teamObj.wins += 1; teamObj.recentForm.push("W"); }
+          else { teamObj.recentForm.push("L"); }
           teamObj.winRate = (teamObj.wins / teamObj.games) * 100;
 
-          // Split score equally among team members
           const splitScore = Math.round(score / Math.max(teamObj.members.length, 1));
           teamObj.members.forEach((pId) => {
             const playerObj = players.find((p) => p._id === pId);
@@ -534,18 +373,12 @@ class DataService {
 
             playerObj.matches += 1;
             playerObj.totalPoints += splitScore;
-            if (isWinner) {
-              playerObj.wins += 1;
-              playerObj.recentForm.push("W");
-            } else {
-              playerObj.losses += 1;
-              playerObj.recentForm.push("L");
-            }
+            if (isWinner) { playerObj.wins += 1; playerObj.recentForm.push("W"); }
+            else { playerObj.losses += 1; playerObj.recentForm.push("L"); }
             playerObj.winRate = (playerObj.wins / playerObj.matches) * 100;
           });
         });
       } else {
-        // Solo / Free For All
         match.players.forEach((pId) => {
           const playerObj = players.find((p) => p._id === pId);
           if (!playerObj) return;
@@ -555,19 +388,13 @@ class DataService {
 
           playerObj.matches += 1;
           playerObj.totalPoints += score;
-          if (isWinner) {
-            playerObj.wins += 1;
-            playerObj.recentForm.push("W");
-          } else {
-            playerObj.losses += 1;
-            playerObj.recentForm.push("L");
-          }
+          if (isWinner) { playerObj.wins += 1; playerObj.recentForm.push("W"); }
+          else { playerObj.losses += 1; playerObj.recentForm.push("L"); }
           playerObj.winRate = (playerObj.wins / playerObj.matches) * 100;
         });
       }
     });
 
-    // 5. Cap recent forms to last 5 entries
     players.forEach((p) => {
       if (p.recentForm.length > 5) p.recentForm = p.recentForm.slice(-5);
       else if (p.matches > 0) p.losses = p.matches - p.wins;
@@ -575,51 +402,53 @@ class DataService {
     teams.forEach((t) => {
       if (t.recentForm.length > 5) t.recentForm = t.recentForm.slice(-5);
     });
-
-    // 6. Save recalculated states back
-    this.setStorage("players", players);
-    this.setStorage("games", games);
-    this.setStorage("teams", teams);
-
-    // 7. Sync queue updates for modified stats
-    players.forEach((p) => this.addToQueue("UPDATE", "PLAYER", p));
-    games.forEach((g) => this.addToQueue("UPDATE", "GAME", g));
-    teams.forEach((t) => this.addToQueue("UPDATE", "TEAM", t));
+    
+    // Fire-and-forget sync to API to update stats on server
+    // Since we want this to be seamless, we can trigger an async block without awaiting it
+    const queue: any[] = [];
+    players.forEach((p) => queue.push({ action: "UPDATE", entityType: "PLAYER", payload: p }));
+    games.forEach((g) => queue.push({ action: "UPDATE", entityType: "GAME", payload: g }));
+    teams.forEach((t) => queue.push({ action: "UPDATE", entityType: "TEAM", payload: t }));
+    
+    if (typeof window !== "undefined" && queue.length > 0) {
+       fetch("/api/sync", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ queue }),
+       }).catch(console.error);
+    }
   }
 
   // TOURNAMENTS CRUD
   public getTournaments(): ClientTournament[] {
-    return this.getStorage<ClientTournament[]>("tournaments", []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return [...this.memoryCache.tournaments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
   public getActiveTournament(): ClientTournament | undefined {
-    return this.getTournaments().find((t) => t.isActive);
+    return this.memoryCache.tournaments.find((t) => t.isActive);
   }
 
-  public saveTournament(tournament: ClientTournament): ClientTournament {
-    const tournaments = this.getTournaments();
-    const idx = tournaments.findIndex((t) => t._id === tournament._id);
+  public async saveTournament(tournament: ClientTournament): Promise<ClientTournament> {
+    const idx = this.memoryCache.tournaments.findIndex((t) => t._id === tournament._id);
+    const isNew = idx === -1;
 
-    if (idx !== -1) {
-      tournaments[idx] = tournament;
+    if (!isNew) {
+      this.memoryCache.tournaments[idx] = tournament;
     } else {
-      tournaments.push(tournament);
+      this.memoryCache.tournaments.push(tournament);
     }
 
-    this.setStorage("tournaments", tournaments);
-    this.addToQueue(idx !== -1 ? "UPDATE" : "CREATE", "TOURNAMENT", tournament);
+    await this.pushToApi(isNew ? "CREATE" : "UPDATE", "TOURNAMENT", tournament);
+    this.emitChange();
     return tournament;
   }
 
-  public createTournament(name: string, gamesCount: number, format: "custom" | "action", winPoints: number, gameIds: string[], participantIds: string[], isTeamMode: boolean): ClientTournament {
+  public async createTournament(name: string, gamesCount: number, format: "custom" | "action", winPoints: number, gameIds: string[], participantIds: string[], isTeamMode: boolean): Promise<ClientTournament> {
     const id = generateId();
     
-    // Auto-deactivate others
-    const tournaments = this.getTournaments();
-    tournaments.forEach((t) => {
+    this.memoryCache.tournaments.forEach((t) => {
       if (t.isActive) t.isActive = false;
     });
-    this.setStorage("tournaments", tournaments);
 
     const standings: Record<string, any> = {};
     participantIds.forEach((pId) => {
@@ -659,17 +488,12 @@ class DataService {
     return this.saveTournament(newTournament);
   }
 
-  // Hierarchy Management: Sync brackets and standings of tournament from matches
-  public syncTournamentFromMatches(tournamentId: string) {
-    const tournaments = this.getTournaments();
-    const tournament = tournaments.find((t) => t._id === tournamentId);
+  public async syncTournamentFromMatches(tournamentId: string) {
+    const tournament = this.memoryCache.tournaments.find((t) => t._id === tournamentId);
     if (!tournament) return;
 
-    const matches = this.getStorage<ClientMatch[]>("matches", []);
-    // Find all matches for this tournament
-    const tourneyMatches = matches.filter((m) => m.tournament === tournamentId && m.isTournamentMatch);
+    const tourneyMatches = this.memoryCache.matches.filter((m) => m.tournament === tournamentId && m.isTournamentMatch);
 
-    // Group matches by fixtureId
     const fixtureMatches: Record<string, ClientMatch[]> = {};
     tourneyMatches.forEach((m) => {
       if (m.roundId) {
@@ -699,34 +523,20 @@ class DataService {
                 gameId: m.game,
               };
             } else {
-              return {
-                score1: null,
-                score2: null,
-                isPlayed: false,
-                gameId: null,
-              };
+              return { score1: null, score2: null, isPlayed: false, gameId: null };
             }
           });
           changed = true;
         } else {
-          // Reset to default empty games if no matches
-          fix.games = Array.from({ length: tournament.gamesCount }, () => ({
-            score1: null,
-            score2: null,
-            isPlayed: false,
-            gameId: null,
-          }));
+          fix.games = Array.from({ length: tournament.gamesCount }, () => ({ score1: null, score2: null, isPlayed: false, gameId: null }));
           changed = true;
         }
       });
     }
 
     if (changed) {
-      // Recalculate Standings
       const standings: Record<string, { wins: number; losses: number; points: number; games: number }> = {};
-      tournament.participants.forEach((pId) => {
-        standings[pId] = { wins: 0, losses: 0, points: 0, games: 0 };
-      });
+      tournament.participants.forEach((pId) => { standings[pId] = { wins: 0, losses: 0, points: 0, games: 0 }; });
 
       (tournament.bracket?.fixtures || []).forEach((f: any) => {
         if (!standings[f.p1]) standings[f.p1] = { wins: 0, losses: 0, points: 0, games: 0 };
@@ -739,23 +549,15 @@ class DataService {
             standings[f.p1].points += g.score1 || 0;
             standings[f.p2].points += g.score2 || 0;
 
-            if (g.score1 > g.score2) {
-              standings[f.p1].wins += 1;
-              standings[f.p2].losses += 1;
-            } else if (g.score2 > g.score1) {
-              standings[f.p2].wins += 1;
-              standings[f.p1].losses += 1;
-            }
+            if (g.score1 > g.score2) { standings[f.p1].wins += 1; standings[f.p2].losses += 1; }
+            else if (g.score2 > g.score1) { standings[f.p2].wins += 1; standings[f.p1].losses += 1; }
           }
         });
       });
 
       tournament.standings = standings;
-
-      // Handle Esports stage advancements if action mode
       this.checkActionTournamentAdvancement(tournament);
 
-      // Check if tournament is completed (e.g. final played) and assign champion
       const finalFix = (tournament.bracket?.fixtures || []).find((f: any) => f.stage === "final");
       if (finalFix && finalFix.games.every((g: any) => g.isPlayed)) {
         let p1Wins = 0;
@@ -770,8 +572,7 @@ class DataService {
           tournament.isActive = false;
         }
       }
-
-      this.saveTournament(tournament);
+      await this.saveTournament(tournament);
     }
   }
 

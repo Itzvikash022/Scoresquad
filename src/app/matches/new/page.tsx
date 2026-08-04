@@ -81,17 +81,21 @@ export default function RecordMatchPage() {
     }
   };
 
-  const handleCreateTeamPair = (p1Id: string, p2Id: string) => {
-    const newTeam = dataService.getOrCreateTeam([p1Id, p2Id]);
-    setTeams(dataService.getTeams());
-    setSelectedTeamIds((prev) => {
-      if (prev.includes(newTeam._id)) return prev;
-      if (prev.length >= 2) {
-        return [prev[1], newTeam._id];
-      }
-      return [...prev, newTeam._id];
-    });
-    showToast("Team pair created and selected!", "success");
+  const handleCreateTeamPair = async (p1Id: string, p2Id: string) => {
+    try {
+      const newTeam = await dataService.getOrCreateTeam([p1Id, p2Id]);
+      setTeams(dataService.getTeams());
+      setSelectedTeamIds((prev) => {
+        if (prev.includes(newTeam._id)) return prev;
+        if (prev.length >= 2) {
+          return [prev[1], newTeam._id];
+        }
+        return [...prev, newTeam._id];
+      });
+      showToast("Team pair created and selected!", "success");
+    } catch (err) {
+      showToast("Failed to create team combination", "error");
+    }
   };
 
   const handleProceedToScores = () => {
@@ -168,7 +172,7 @@ export default function RecordMatchPage() {
     return winners;
   };
 
-  const handleSaveMatch = () => {
+  const handleSaveMatch = async () => {
     if (selectedGames.length === 0) return;
 
     const matchesToSave = selectedGames.map((game) => {
@@ -191,14 +195,14 @@ export default function RecordMatchPage() {
     }
 
     try {
-      const teamA = matchMode === "Team Match" ? dataService.getOrCreateTeam(teamAPlayers) : null;
-      const teamB = matchMode === "Team Match" ? dataService.getOrCreateTeam(teamBPlayers) : null;
+      const teamA = matchMode === "Team Match" ? await dataService.getOrCreateTeam(teamAPlayers) : null;
+      const teamB = matchMode === "Team Match" ? await dataService.getOrCreateTeam(teamBPlayers) : null;
 
       const roundId = "round-" + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
-      matchesToSave.forEach(({ game, scoreMap, winners }) => {
+      const savePromises = matchesToSave.map(({ game, scoreMap, winners }) => {
         if (matchMode === "Team Match" && teamA && teamB) {
-          dataService.saveMatch({
+          return dataService.saveMatch({
             roundId,
             game: game._id,
             matchType: "Team Match",
@@ -209,7 +213,7 @@ export default function RecordMatchPage() {
             isTournamentMatch: false,
           });
         } else {
-          dataService.saveMatch({
+          return dataService.saveMatch({
             roundId,
             game: game._id,
             matchType: matchMode,
@@ -221,6 +225,8 @@ export default function RecordMatchPage() {
           });
         }
       });
+      
+      await Promise.all(savePromises);
 
       showToast(`Recorded ${matchesToSave.length} match${matchesToSave.length === 1 ? "" : "es"} successfully!`, "success");
       router.push("/stats?tab=history");
