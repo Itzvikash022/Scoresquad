@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Search, Trash2, Settings, Download, Upload, HelpCircle, FileText, UserPlus, Gamepad2, ArrowRight } from "lucide-react";
+import { Plus, Search, Trash2, Settings, Download, Upload, HelpCircle, FileText, UserPlus, Gamepad2, ArrowRight, Edit2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,17 @@ export default function ManagementPage() {
   // Rename modal
   const [renamePlayer, setRenamePlayer] = useState<ClientPlayer | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [renameState, setRenameState] = useState<"idle" | "saving" | "done">("idle");
+  const [renameLoadingText, setRenameLoadingText] = useState("");
+
+  const SARCASTIC_TEXTS = [
+    "Thinking about your choice of name...",
+    "Grieving about life decisions...",
+    "Accepting the reality...",
+    "Questioning your taste...",
+    "Sighing heavily...",
+    "Judging you silently..."
+  ];
 
   // Dog gif modal
   const [showDogGif, setShowDogGif] = useState(false);
@@ -145,11 +156,15 @@ export default function ManagementPage() {
 
       // Open PIN modal after blink
       setTimeout(() => {
-        setPinModalPlayer(player);
-        setPinValue("");
-        setPinError(false);
+        openPinModal(player);
       }, 900);
     }, HOLD_DURATION);
+  };
+
+  const openPinModal = (player: ClientPlayer) => {
+    setPinModalPlayer(player);
+    setPinValue("");
+    setPinError(false);
   };
 
   const cancelHold = () => {
@@ -166,13 +181,6 @@ export default function ManagementPage() {
 
   const handlePinSubmit = () => {
     if (!pinModalPlayer) return;
-
-    if (pinModalPlayer.hasRenamedOnce) {
-      // Name already locked — always show dog gif regardless of PIN
-      setPinModalPlayer(null);
-      setShowDogGif(true);
-      return;
-    }
 
     if (pinValue === PIN_CODE) {
       setPinModalPlayer(null);
@@ -194,18 +202,33 @@ export default function ManagementPage() {
       return;
     }
 
+    setRenameState("saving");
+    
+    let count = 0;
+    setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
+    
+    const interval = setInterval(() => {
+      count++;
+      if (count >= 3) {
+        clearInterval(interval);
+        completeSave(newName);
+      } else {
+        setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
+      }
+    }, 1200);
+  };
+
+  const completeSave = async (newName: string) => {
     try {
       await dataService.savePlayer({
-        ...renamePlayer,
+        ...renamePlayer!,
         name: newName,
-        hasRenamedOnce: true,
       });
-      showToast(`Name changed to "${newName}" — this was your one-time rename.`, "success");
-      setRenamePlayer(null);
-      setRenameValue("");
       loadData();
+      setRenameState("done");
     } catch (err: any) {
       showToast("Failed to rename player", "error");
+      setRenameState("idle");
     }
   };
   // ─────────────────────────────────────────────────────────────────────────
@@ -430,22 +453,29 @@ export default function ManagementPage() {
                     <div className="font-bold text-[14.5px] text-text truncate flex items-center gap-1.5">
                       {p.name}
                       {p.nickname && <span className="text-[11.5px] font-semibold text-accent font-mono">"{p.nickname}"</span>}
-                      {p.hasRenamedOnce && (
-                        <span title="Name locked" className="text-[10px] text-text-faint">🔒</span>
-                      )}
                     </div>
                     <div className="text-[12.5px] text-text-dim mt-0.5">
                       {p.wins} wins · {p.losses} losses · WR {p.winRate.toFixed(0)}%
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleDeletePlayer(p._id, p.name); }}
-                    className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-danger hover:text-red transition-all cursor-pointer flex items-center justify-center focus:outline-none shrink-0"
-                    title="Delete Player"
-                  >
-                    <Trash2 className="h-4.5 w-4.5" />
-                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openPinModal(p); }}
+                      className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-text-dim hover:text-text transition-all cursor-pointer flex items-center justify-center focus:outline-none"
+                      title="Edit Player"
+                    >
+                      <Edit2 className="h-4.5 w-4.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleDeletePlayer(p._id, p.name); }}
+                      className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-danger hover:text-red transition-all cursor-pointer flex items-center justify-center focus:outline-none"
+                      title="Delete Player"
+                    >
+                      <Trash2 className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
                 </Card>
               ))
             ) : (
@@ -463,7 +493,7 @@ export default function ManagementPage() {
                   <div className="text-[28px] mb-1">🔐</div>
                   <h2 className="font-display font-bold text-[17px] text-text">Identify Yourself</h2>
                   <p className="text-[12px] text-text-dim mt-1">
-                    Enter the squad code to {pinModalPlayer.hasRenamedOnce ? "attempt something pointless" : `rename ${pinModalPlayer.name}`}
+                    Enter the squad code to rename {pinModalPlayer.name}
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -507,37 +537,73 @@ export default function ManagementPage() {
           {renamePlayer && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
               <div className="bg-surface border border-border rounded-2xl p-6 w-[320px] flex flex-col gap-4 shadow-2xl">
-                <div className="text-center">
-                  <div className="text-[28px] mb-1">✏️</div>
-                  <h2 className="font-display font-bold text-[17px] text-text">Rename Player</h2>
-                  <p className="text-[12px] text-text-dim mt-1">
-                    You get <span className="text-accent font-bold">one rename</span> per player. Choose wisely.
-                  </p>
-                </div>
-                <input
-                  type="text"
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
-                  placeholder="New name..."
-                  autoFocus
-                  maxLength={32}
-                  className="w-full rounded-lg border border-border px-4 py-3 bg-surface-2 text-text font-display font-bold text-[15px] outline-none focus:border-primary transition-all"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setRenamePlayer(null); setRenameValue(""); }}
-                    className="flex-1 py-2.5 rounded-lg border border-border text-text-dim font-semibold text-[13px] hover:bg-surface-2 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleRenameSubmit}
-                    className="flex-1 py-2.5 rounded-lg bg-primary text-white font-bold text-[13px] hover:bg-primary-hover transition-all cursor-pointer"
-                  >
-                    Save Name
-                  </button>
-                </div>
+                
+                {renameState === "idle" && (
+                  <>
+                    <div className="text-center">
+                      <div className="text-[28px] mb-1">✏️</div>
+                      <h2 className="font-display font-bold text-[17px] text-text">Rename Player</h2>
+                      <p className="text-[12px] text-text-dim mt-1">
+                        Choose a new name. No limits anymore.
+                      </p>
+                    </div>
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleRenameSubmit()}
+                      placeholder="New name..."
+                      autoFocus
+                      maxLength={32}
+                      className="w-full rounded-lg border border-border px-4 py-3 bg-surface-2 text-text font-display font-bold text-[15px] outline-none focus:border-primary transition-all"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setRenamePlayer(null); setRenameValue(""); }}
+                        className="flex-1 py-2.5 rounded-lg border border-border text-text-dim font-semibold text-[13px] hover:bg-surface-2 transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleRenameSubmit}
+                        className="flex-1 py-2.5 rounded-lg bg-primary text-white font-bold text-[13px] hover:bg-primary-hover transition-all cursor-pointer"
+                      >
+                        Save Name
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {renameState === "saving" && (
+                  <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
+                    <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                    <p className="font-semibold text-text text-[14px] animate-pulse">
+                      {renameLoadingText}
+                    </p>
+                  </div>
+                )}
+
+                {renameState === "done" && (
+                  <div className="flex flex-col items-center justify-center py-4 gap-4 text-center">
+                    <div className="text-[40px] mb-2">✅</div>
+                    <h2 className="font-display font-bold text-[18px] text-text">Saved!</h2>
+                    <p className="text-[13px] text-text-dim">
+                      The deed is done.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setRenamePlayer(null);
+                        setRenameValue("");
+                        setRenameState("idle");
+                        setShowDogGif(true);
+                      }}
+                      className="w-full mt-2 py-3 rounded-lg bg-primary text-white font-bold text-[14px] hover:bg-primary-hover transition-all cursor-pointer"
+                    >
+                      Okay
+                    </button>
+                  </div>
+                )}
+
               </div>
             </div>
           )}
@@ -557,7 +623,7 @@ export default function ManagementPage() {
                   playsInline
                   className="max-w-[90vw] max-h-[75vh] rounded-2xl shadow-2xl"
                 />
-                <p className="text-white font-bold text-[13px] opacity-60">This name is locked forever. Tap to dismiss.</p>
+                <p className="text-white font-bold text-[13px] opacity-60">Tap to dismiss.</p>
               </div>
             </div>
           )}
