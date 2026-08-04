@@ -8,7 +8,6 @@ import dataService from "@/lib/dataService";
 
 const navItems = [
   { label: "Home", href: "/", icon: Home },
-  { label: "Tournaments", href: "/tournaments", icon: Trophy },
   { label: "Stats", href: "/stats", icon: BarChart3 },
   { label: "Players", href: "/players", icon: Users },
 ];
@@ -60,7 +59,6 @@ const Header: React.FC = () => {
       {/* Placeholder layout spacer on desktop */}
       <div className="hidden md:block font-display font-semibold text-[15.5px] text-text">
         {pathname === "/" && "Dashboard"}
-        {pathname.startsWith("/tournaments") && "Tournaments"}
         {pathname.startsWith("/stats") && "Statistics & Standings"}
         {pathname.startsWith("/players") && "Catalog & Settings"}
         {pathname.startsWith("/matches") && "Scoring Round"}

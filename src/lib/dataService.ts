@@ -348,17 +348,69 @@ class DataService {
     teams.forEach((t) => { t.games = 0; t.wins = 0; t.points = 0; t.winRate = 0; t.recentForm = []; });
     games.forEach((g) => { g.totalMatchesPlayed = 0; });
 
-    matches.forEach((match) => {
-      const gameObj = games.find((g) => g._id === match.game);
-      if (gameObj) gameObj.totalMatchesPlayed += 1;
+    const roundGroups: Record<string, ClientMatch[]> = {};
+    matches.forEach((m) => {
+      const rId = m.roundId || m._id;
+      if (!roundGroups[rId]) roundGroups[rId] = [];
+      roundGroups[rId].push(m);
 
-      if (match.matchType === "Team Match") {
-        match.teams.forEach((tId) => {
+      const gameObj = games.find((g) => g._id === m.game);
+      if (gameObj) gameObj.totalMatchesPlayed += 1;
+    });
+
+    Object.values(roundGroups).forEach((roundMatches) => {
+      const firstMatch = roundMatches[0];
+      const isTeam = firstMatch.matchType === "Team Match";
+
+      const entityWins: Record<string, number> = {};
+      const entityPoints: Record<string, number> = {};
+
+      roundMatches.forEach((m) => {
+        m.winners.forEach((w) => {
+          entityWins[w] = (entityWins[w] || 0) + 1;
+        });
+        Object.entries(m.scores).forEach(([id, score]) => {
+          entityPoints[id] = (entityPoints[id] || 0) + score;
+        });
+      });
+
+      let maxWins = -1;
+      let roundWinners: string[] = [];
+      
+      const competitors = isTeam ? firstMatch.teams : firstMatch.players;
+      competitors.forEach((id) => {
+        const w = entityWins[id] || 0;
+        if (w > maxWins) {
+          maxWins = w;
+          roundWinners = [id];
+        } else if (w === maxWins) {
+          roundWinners.push(id);
+        }
+      });
+
+      if (maxWins >= 0) {
+        let maxPoints = -1;
+        const finalWinners: string[] = [];
+        roundWinners.forEach((id) => {
+          const p = entityPoints[id] || 0;
+          if (p > maxPoints) {
+            maxPoints = p;
+            finalWinners.length = 0;
+            finalWinners.push(id);
+          } else if (p === maxPoints) {
+            finalWinners.push(id);
+          }
+        });
+        roundWinners = finalWinners;
+      }
+
+      if (isTeam) {
+        firstMatch.teams.forEach((tId) => {
           const teamObj = teams.find((t) => t._id === tId);
           if (!teamObj) return;
 
-          const score = match.scores[tId] || 0;
-          const isWinner = match.winners.includes(tId);
+          const isWinner = roundWinners.includes(tId);
+          const score = entityPoints[tId] || 0;
 
           teamObj.games += 1;
           teamObj.points += score;
@@ -379,12 +431,12 @@ class DataService {
           });
         });
       } else {
-        match.players.forEach((pId) => {
+        firstMatch.players.forEach((pId) => {
           const playerObj = players.find((p) => p._id === pId);
           if (!playerObj) return;
 
-          const score = match.scores[pId] || 0;
-          const isWinner = match.winners.includes(pId);
+          const isWinner = roundWinners.includes(pId);
+          const score = entityPoints[pId] || 0;
 
           playerObj.matches += 1;
           playerObj.totalPoints += score;

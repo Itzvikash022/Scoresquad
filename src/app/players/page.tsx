@@ -62,6 +62,7 @@ export default function ManagementPage() {
   const [renameValue, setRenameValue] = useState("");
   const [renameState, setRenameState] = useState<"idle" | "saving" | "done">("idle");
   const [renameLoadingText, setRenameLoadingText] = useState("");
+  const [isTrollMode, setIsTrollMode] = useState(false);
 
   const SARCASTIC_TEXTS = [
     "Thinking about your choice of name...",
@@ -156,13 +157,14 @@ export default function ManagementPage() {
 
       // Open PIN modal after blink
       setTimeout(() => {
-        openPinModal(player);
+        openPinModal(player, false);
       }, 900);
     }, HOLD_DURATION);
   };
 
-  const openPinModal = (player: ClientPlayer) => {
+  const openPinModal = (player: ClientPlayer, trollMode: boolean) => {
     setPinModalPlayer(player);
+    setIsTrollMode(trollMode);
     setPinValue("");
     setPinError(false);
   };
@@ -202,30 +204,43 @@ export default function ManagementPage() {
       return;
     }
 
-    setRenameState("saving");
-    
-    let count = 0;
-    setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
-    
-    const interval = setInterval(() => {
-      count++;
-      if (count >= 3) {
-        clearInterval(interval);
-        completeSave(newName);
-      } else {
-        setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
-      }
-    }, 1200);
+    if (isTrollMode) {
+      setRenameState("saving");
+      
+      let count = 0;
+      setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
+      
+      const interval = setInterval(() => {
+        count++;
+        if (count >= 3) {
+          clearInterval(interval);
+          completeSave(newName, true);
+        } else {
+          setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
+        }
+      }, 1200);
+    } else {
+      completeSave(newName, false);
+    }
   };
 
-  const completeSave = async (newName: string) => {
+  const completeSave = async (newName: string, triggerDog: boolean) => {
     try {
       await dataService.savePlayer({
         ...renamePlayer!,
         name: newName,
       });
       loadData();
-      setRenameState("done");
+      if (triggerDog) {
+        setRenamePlayer(null);
+        setRenameValue("");
+        setRenameState("idle");
+        setShowDogGif(true);
+      } else {
+        setRenamePlayer(null);
+        setRenameValue("");
+        setRenameState("idle");
+      }
     } catch (err: any) {
       showToast("Failed to rename player", "error");
       setRenameState("idle");
@@ -461,7 +476,7 @@ export default function ManagementPage() {
                   <div className="flex gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); openPinModal(p); }}
+                      onClick={(e) => { e.stopPropagation(); openPinModal(p, true); }}
                       className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-text-dim hover:text-text transition-all cursor-pointer flex items-center justify-center focus:outline-none"
                       title="Edit Player"
                     >
@@ -580,27 +595,6 @@ export default function ManagementPage() {
                     <p className="font-semibold text-text text-[14px] animate-pulse">
                       {renameLoadingText}
                     </p>
-                  </div>
-                )}
-
-                {renameState === "done" && (
-                  <div className="flex flex-col items-center justify-center py-4 gap-4 text-center">
-                    <div className="text-[40px] mb-2">✅</div>
-                    <h2 className="font-display font-bold text-[18px] text-text">Saved!</h2>
-                    <p className="text-[13px] text-text-dim">
-                      The deed is done.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setRenamePlayer(null);
-                        setRenameValue("");
-                        setRenameState("idle");
-                        setShowDogGif(true);
-                      }}
-                      className="w-full mt-2 py-3 rounded-lg bg-primary text-white font-bold text-[14px] hover:bg-primary-hover transition-all cursor-pointer"
-                    >
-                      Okay
-                    </button>
                   </div>
                 )}
 

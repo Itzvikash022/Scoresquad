@@ -17,7 +17,7 @@ export default function Dashboard() {
   const [matches, setMatches] = useState<ClientMatch[]>([]);
   const [games, setGames] = useState<ClientGame[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
-  const [stats, setStats] = useState({ matches: 0, games: 0, activeTourneys: 0 });
+  const [stats, setStats] = useState({ matches: 0, games: 0 });
 
   useEffect(() => {
     const loadData = () => {
@@ -34,7 +34,6 @@ export default function Dashboard() {
       setStats({
         matches: allM.length,
         games: allG.length,
-        activeTourneys: allT.filter((t) => t.isActive).length,
       });
     };
 
@@ -106,7 +105,7 @@ export default function Dashboard() {
       </Button>
 
       {/* Statistics Tiles Grid */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <Card className="flex flex-col items-center justify-center p-3 text-center border-border bg-surface rounded-lg">
           <span className="font-display text-[20px] font-bold text-accent">
             {stats.matches}
@@ -123,48 +122,7 @@ export default function Dashboard() {
             Games
           </span>
         </Card>
-        <Card className="flex flex-col items-center justify-center p-3 text-center border-border bg-surface rounded-lg">
-          <span className="font-display text-[20px] font-bold text-success">
-            {stats.activeTourneys}
-          </span>
-          <span className="mono-label text-text-faint text-[9px] mt-1">
-            Live Tourney
-          </span>
-        </Card>
       </div>
-
-      {/* Active Tournament Card tracker */}
-      {activeTournament && (
-        <Card
-          onClick={() => router.push("/tournaments")}
-          className="border-accent/40 bg-gradient-to-br from-accent/[0.04] to-surface rounded-xl p-4 flex flex-col gap-3 cursor-pointer hover:border-accent/60 transition-all"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
-              <Trophy className="h-5 w-5 stroke-[2]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <span className="mono-label text-accent text-[9.5px]">
-                ONGOING TOURNAMENT
-              </span>
-              <h3 className="font-display font-bold text-[15.5px] text-text truncate">
-                {activeTournament.name}
-              </h3>
-            </div>
-            <Badge className="bg-[#45D999]/15 text-[#45D999] border-none font-semibold text-[11px] rounded-full">
-              Active
-            </Badge>
-          </div>
-          <div className="flex justify-between items-center text-[12.5px] text-text-dim border-t border-border/40 pt-3">
-            <span className="font-semibold">
-              {activeTournament.gamesCount} games · {activeTournament.isTeamMode ? "Team mode" : "Solo mode"}
-            </span>
-            <span className="flex items-center gap-1 font-bold text-primary text-[12px]">
-              Standings &amp; record <ArrowRight className="h-3 w-3" />
-            </span>
-          </div>
-        </Card>
-      )}
 
       {/* Top Players Preview section */}
       <div className="flex flex-col gap-2.5">
