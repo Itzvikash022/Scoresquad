@@ -59,6 +59,17 @@ function StatisticsContent() {
   const sortedPlayers = [...players].sort((a, b) => b.totalPoints - a.totalPoints || b.winRate - a.winRate);
   const sortedTeams = [...teams].sort((a, b) => b.points - a.points || b.winRate - a.winRate);
 
+  const getRank = (list: any[], currentIdx: number, pointsField: string) => {
+    let rank = 1;
+    const currentPoints = list[currentIdx][pointsField];
+    for (let i = 0; i < currentIdx; i++) {
+      if (list[i][pointsField] > currentPoints) {
+        rank++;
+      }
+    }
+    return rank;
+  };
+
   // Filter History
   const filteredMatches = matches.filter((m) => {
     if (m.isDraft) return false;
@@ -192,6 +203,10 @@ function StatisticsContent() {
     
     const summaryText = `${gameNames} (${matchesInRound.length} game${matchesInRound.length === 1 ? "" : "s"})`;
 
+    const maxCreatedAt = Math.max(
+      ...matchesInRound.map((m) => new Date(m.createdAt || m.date).getTime())
+    );
+
     return {
       roundId,
       date: firstMatch.date,
@@ -201,8 +216,9 @@ function StatisticsContent() {
       competitors,
       summaryText,
       matches: sortedMatches,
+      maxCreatedAt,
     };
-  }).filter((r): r is NonNullable<typeof r> => r !== null).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }).filter((r): r is NonNullable<typeof r> => r !== null).sort((a, b) => b.maxCreatedAt - a.maxCreatedAt);
 
   // Analytics
   const getAnalytics = () => {
@@ -286,17 +302,28 @@ function StatisticsContent() {
     return { game: g, top };
   });
 
-  const getMedal = (idx: number) => {
-    if (idx === 0) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 border border-cyan-100 flex items-center justify-center shadow-[0_0_8px_rgba(34,211,238,0.6)] font-bold text-white text-[12px]" title="Diamond">1</div>;
-    if (idx === 1) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-600 border border-yellow-100 flex items-center justify-center shadow-[0_0_8px_rgba(253,224,71,0.6)] font-bold text-white text-[12px]" title="Gold">2</div>;
-    if (idx === 2) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 border border-gray-100 flex items-center justify-center shadow-inner font-bold text-white text-[12px]" title="Plastic">3</div>;
-    return <div className="w-7 h-7 font-display font-bold text-[12px] rounded-full flex items-center justify-center bg-surface-3 text-text-dim">{idx + 1}</div>;
+  const getMedal = (rank: number) => {
+    if (rank === 1) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 border border-cyan-100 flex items-center justify-center shadow-[0_0_8px_rgba(34,211,238,0.6)] font-bold text-white text-[12px]" title="Diamond">1</div>;
+    if (rank === 2) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-600 border border-yellow-100 flex items-center justify-center shadow-[0_0_8px_rgba(253,224,71,0.6)] font-bold text-white text-[12px]" title="Gold">2</div>;
+    if (rank === 3) return <div className="w-7 h-7 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 border border-gray-100 flex items-center justify-center shadow-inner font-bold text-white text-[12px]" title="Plastic">3</div>;
+    return <div className="w-7 h-7 font-display font-bold text-[12px] rounded-full flex items-center justify-center bg-surface-3 text-text-dim">{rank}</div>;
   };
 
   const Podium = ({ top3, isTeam }: { top3: any[], isTeam: boolean }) => {
     if (top3.length < 3) return null;
     const [first, second, third] = top3;
     
+    const fullList = isTeam ? sortedTeams : sortedPlayers;
+    const pointsField = isTeam ? "points" : "totalPoints";
+
+    const idx1 = fullList.findIndex((e) => e._id === first._id);
+    const idx2 = fullList.findIndex((e) => e._id === second._id);
+    const idx3 = fullList.findIndex((e) => e._id === third._id);
+
+    const rank1 = getRank(fullList, idx1 !== -1 ? idx1 : 0, pointsField);
+    const rank2 = getRank(fullList, idx2 !== -1 ? idx2 : 1, pointsField);
+    const rank3 = getRank(fullList, idx3 !== -1 ? idx3 : 2, pointsField);
+
     const renderAvatar = (entity: any) => {
       if (isTeam) {
          const teamPlayers = entity.members.map((pId: string) => ({ id: pId, name: players.find(p=>p._id===pId)?.name||"Player" }));
@@ -313,7 +340,7 @@ function StatisticsContent() {
             <div className="font-bold text-[13px] text-text mt-2 truncate w-full text-center">{second.name}</div>
             <div className="text-[11px] text-text-dim mb-2">{second.wins} W</div>
             <div className="w-full bg-gradient-to-t from-yellow-600/40 to-yellow-500/10 border border-yellow-500/30 rounded-t-lg h-[60px] flex items-start justify-center pt-2">
-               {getMedal(1)}
+               {getMedal(rank2)}
             </div>
          </div>
          {/* 1st Place */}
@@ -323,7 +350,7 @@ function StatisticsContent() {
             <div className="font-bold text-[14px] text-text mt-2 truncate w-full text-center text-cyan-200">{first.name}</div>
             <div className="text-[11px] text-text-dim mb-2">{first.wins} W</div>
             <div className="w-full bg-gradient-to-t from-cyan-600/50 to-cyan-400/20 border border-cyan-400/50 rounded-t-lg h-[90px] flex items-start justify-center pt-2 shadow-[0_-5px_15px_rgba(34,211,238,0.15)]">
-               {getMedal(0)}
+               {getMedal(rank1)}
             </div>
          </div>
          {/* 3rd Place */}
@@ -332,7 +359,7 @@ function StatisticsContent() {
             <div className="font-bold text-[13px] text-text mt-2 truncate w-full text-center">{third.name}</div>
             <div className="text-[11px] text-text-dim mb-2">{third.wins} W</div>
             <div className="w-full bg-gradient-to-t from-gray-600/40 to-gray-500/10 border border-gray-500/30 rounded-t-lg h-[45px] flex items-start justify-center pt-2">
-               {getMedal(2)}
+               {getMedal(rank3)}
             </div>
          </div>
       </div>
@@ -408,6 +435,7 @@ function StatisticsContent() {
                   <Podium top3={sortedPlayers.slice(0, 3)} isTeam={false} />
                   {sortedPlayers.map((p, idx) => {
                     const isFirst = idx === 0;
+                    const rank = getRank(sortedPlayers, idx, "totalPoints");
                     return (
                       <Card
                         key={p._id}
@@ -419,7 +447,7 @@ function StatisticsContent() {
                         }`}
                       >
                         <div className="shrink-0 flex items-center justify-center w-7">
-                          {getMedal(idx)}
+                          {getMedal(rank)}
                         </div>
                       <PlayerAvatar id={p._id} name={p.name} size="sm" />
                       <div className="flex-grow min-w-0">
@@ -449,6 +477,7 @@ function StatisticsContent() {
                   <Podium top3={sortedTeams.slice(0, 3)} isTeam={true} />
                   {sortedTeams.map((t, idx) => {
                     const isFirst = idx === 0;
+                    const rank = getRank(sortedTeams, idx, "points");
                     const teamPlayers = t.members.map((pId) => ({
                       id: pId,
                       name: players.find((p) => p._id === pId)?.name || "Player",
@@ -465,7 +494,7 @@ function StatisticsContent() {
                         }`}
                       >
                         <div className="shrink-0 flex items-center justify-center w-7">
-                          {getMedal(idx)}
+                          {getMedal(rank)}
                         </div>
                       <PlayerAvatar size="sm" players={teamPlayers} />
                       <div className="flex-grow min-w-0">

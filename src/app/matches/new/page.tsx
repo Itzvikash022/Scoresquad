@@ -108,6 +108,14 @@ export default function RecordMatchPage() {
     });
   };
 
+  const handleRandomizeGames = () => {
+    if (games.length === 0) return;
+    const shuffled = [...games].sort(() => 0.5 - Math.random());
+    const count = Math.min(targetGamesCount, games.length);
+    setSelectedGames(shuffled.slice(0, count));
+    showToast(`Randomly selected ${count} games!`, "success");
+  };
+
   const handleCreateTeamPair = async (p1Id: string, p2Id: string) => {
     try {
       const newTeam = await dataService.getOrCreateTeam([p1Id, p2Id]);
@@ -254,12 +262,37 @@ export default function RecordMatchPage() {
     return winners;
   };
 
-  const handleRecordActiveGame = async () => {
-    const activeGame = preSelectGames ? selectedGames[activeGameIndex] : games[activeGameIndex];
-    if (!activeGame) return;
+  const getFullyPopulatedScores = (gameId: string) => {
+    const scoreMap = { ...(gameScores[gameId] || {}) };
+    if (matchMode === "Team Match") {
+      selectedTeamIds.forEach((tId) => {
+        if (scoreMap[tId] === undefined) {
+          scoreMap[tId] = 0;
+        }
+      });
+    } else {
+      selectedPlayerIds.forEach((pId) => {
+        if (scoreMap[pId] === undefined) {
+          scoreMap[pId] = 0;
+        }
+      });
+    }
+    return scoreMap;
+  };
 
-    const scoreMap = gameScores[activeGame._id] || {};
+  const handleRecordActiveGame = async (): Promise<boolean> => {
+    const activeGame = preSelectGames ? selectedGames[activeGameIndex] : games[activeGameIndex];
+    if (!activeGame) return false;
+
+    const scoreMap = getFullyPopulatedScores(activeGame._id);
     const winners = getWinnerIds(scoreMap);
+
+    const isZeroZero = Object.values(scoreMap).every((val) => val === 0);
+    if (isZeroZero) {
+      if (!window.confirm(`The score for ${activeGame.name} is 0 - 0. Do you want to save it anyway?`)) {
+        return false;
+      }
+    }
 
     try {
       const teamA = matchMode === "Team Match" ? await dataService.getOrCreateTeam(teamAPlayers) : null;
@@ -284,14 +317,17 @@ export default function RecordMatchPage() {
       });
 
       showToast(`Game score recorded to draft!`, "success");
+      return true;
     } catch (err) {
       showToast("Failed to record game score", "error");
+      return false;
     }
   };
 
   const handleFinalizeMatch = async () => {
     // 1. Record current active game scores first
-    await handleRecordActiveGame();
+    const savedActive = await handleRecordActiveGame();
+    if (!savedActive) return;
 
     const roundMatches = dbMatches.filter((m) => m.roundId === roundId);
     
@@ -301,14 +337,6 @@ export default function RecordMatchPage() {
 
     if (validMatches.length === 0) {
       showToast("Cannot finalize a match with 0 games played.", "error");
-      return;
-    }
-
-    const hasZeroScores = validMatches.some((m) => {
-      return Object.values(m.scores).every((v) => v === 0);
-    });
-
-    if (hasZeroScores && !window.confirm("Some games have 0 scores. Finalize anyway?")) {
       return;
     }
 
@@ -527,11 +555,13 @@ export default function RecordMatchPage() {
       {/* Wizard Header breadcrumbs */}
       <div className="flex items-center gap-3 sticky top-0 bg-background/90 backdrop-blur-xs py-2 z-10">
         <button
-          onClick={() => {
+          onClick={async () => {
             if (step > 1) {
               if (window.confirm("Exit scoring console? Your current score adjustments will be saved as draft.")) {
-                handleRecordActiveGame();
-                setStep(1);
+                const saved = await handleRecordActiveGame();
+                if (saved) {
+                  setStep(1);
+                }
               }
             } else {
               router.push("/");
@@ -657,7 +687,16 @@ export default function RecordMatchPage() {
 
             {preSelectGames && (
               <div className="flex flex-col gap-2 border-t border-border/40 pt-4">
-                <span className="mono-label text-text-faint block">Select games for the round</span>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="mono-label text-text-faint block">Select games for the round</span>
+                  <button
+                    type="button"
+                    onClick={handleRandomizeGames}
+                    className="text-[12px] font-bold text-primary hover:text-primary-hover flex items-center gap-1 cursor-pointer bg-transparent border-none outline-none select-none"
+                  >
+                    🎲 Randomize
+                  </button>
+                </div>
                 <GameSelectGrid
                   games={games}
                   selectedGames={selectedGames}
@@ -717,8 +756,10 @@ export default function RecordMatchPage() {
               activeGameIndex < selectedGames.length - 1 ? (
                 <Button
                   onClick={async () => {
-                    await handleRecordActiveGame();
-                    setActiveGameIndex(activeGameIndex + 1);
+                    const saved = await handleRecordActiveGame();
+                    if (saved) {
+                      setActiveGameIndex(activeGameIndex + 1);
+                    }
                   }}
                   className="w-full py-5 bg-primary text-white hover:bg-primary-hover font-bold text-[13.5px] flex items-center justify-center gap-1.5"
                 >

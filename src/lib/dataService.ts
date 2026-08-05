@@ -51,6 +51,8 @@ export interface ClientMatch {
   isDraft?: boolean;
   targetGamesCount?: number;
   preSelectGames?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ClientTournament {
