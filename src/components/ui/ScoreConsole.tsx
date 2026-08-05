@@ -1,10 +1,17 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Check, Minus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Minus, Plus } from "lucide-react";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { Button } from "@/components/ui/button";
 import { getGameIcon as getIcon } from "@/lib/iconMap";
 import { ClientGame } from "@/lib/dataService";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Competitor {
   id: string;
@@ -22,6 +29,7 @@ interface ScoreConsoleProps {
   onScoreInput?: (competitorId: string, val: string) => void;
   onSave: () => void;
   saveButtonText?: string;
+  onAddGame?: () => void;
 }
 
 export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
@@ -34,6 +42,7 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
   onScoreInput,
   onSave,
   saveButtonText = "Save game & next",
+  onAddGame,
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const activeGame = games[activeGameIndex];
@@ -77,45 +86,61 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
   return (
     <div className="flex flex-col gap-4">
       {/* 1. Game Switcher Header */}
-      {games.length > 1 && (
+      {games.length > 0 && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handlePrevGame}
-              className="w-8 h-8 rounded-lg bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
               aria-label="Previous game"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-5 w-5" />
             </button>
-            <div className="text-center">
-              <span className="mono-label text-text-faint text-[10.5px]">
-                Game {activeGameIndex + 1} of {games.length}
-              </span>
-              <div className="font-display font-bold text-[15px] flex items-center gap-1.5 justify-center mt-0.5">
-                {IconComponent && <IconComponent className="h-4 w-4 text-primary" />}
-                {activeGame?.name}
-              </div>
+
+            <div className="flex-grow min-w-0">
+              <Select value={String(activeGameIndex)} onValueChange={(val) => onGameIndexChange(Number(val))}>
+                <SelectTrigger className="w-full h-11 bg-surface-2 border border-border rounded-xl px-3.5 font-bold text-[14px] text-text flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2 truncate">
+                    {IconComponent && <IconComponent className="h-4.5 w-4.5 text-primary shrink-0" />}
+                    <span className="truncate">{activeGame?.name || "Select game"}</span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="bg-surface border-border max-h-[300px]">
+                  {games.map((g, idx) => {
+                    const GameIcon = getIcon(g.icon);
+                    return (
+                      <SelectItem key={g._id} value={String(idx)}>
+                        <span className="flex items-center gap-2 font-semibold text-[13.5px]">
+                          {GameIcon && <GameIcon className="h-4 w-4 text-primary shrink-0" />}
+                          {g.name}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
+
+            {onAddGame && (
+              <button
+                type="button"
+                onClick={onAddGame}
+                className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
+                title="Add Custom Game"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleNextGame}
-              className="w-8 h-8 rounded-lg bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
               aria-label="Next game"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-5 w-5" />
             </button>
-          </div>
-          {/* Dot progress indicator */}
-          <div className="flex gap-1.5 justify-center mb-1">
-            {games.map((_, idx) => (
-              <div
-                key={idx}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  idx === activeGameIndex ? "w-6 bg-accent" : "w-1.5 bg-border"
-                }`}
-              />
-            ))}
           </div>
         </div>
       )}

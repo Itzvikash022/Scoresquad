@@ -2,13 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/Toast";
-import { GameSelectGrid } from "@/components/ui/GameSelectGrid";
 import { TeamPairSelector } from "@/components/ui/TeamPairSelector";
 import { ScoreConsole } from "@/components/ui/ScoreConsole";
 import dataService, { ClientPlayer, ClientGame, ClientTeam } from "@/lib/dataService";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { getGameIcon as getIcon } from "@/lib/iconMap";
+
+const GAME_EMOJIS = ["🎮", "🎲", "🏓", "🏎️", "♟️", "🧩", "⚽", "🏀", "🃏", "🎯", "🎳", "👾"];
 
 export default function RecordMatchPage() {
   const router = useRouter();
@@ -19,12 +27,11 @@ export default function RecordMatchPage() {
   const [games, setGames] = useState<ClientGame[]>([]);
   const [teams, setTeams] = useState<ClientTeam[]>([]);
 
-  // Wizard Steps: 1 (Pick Game), 2 (Pick Participants), 3 (Scoring Console)
+  // Wizard Steps: 1 (Choose Participants), 2 (Scoring Console)
   const [step, setStep] = useState(1);
 
   // Selected parameters
-  const [selectedGames, setSelectedGames] = useState<ClientGame[]>([]);
-  const [matchMode, setMatchMode] = useState<"Solo" | "Free For All" | "Team Match">("Solo");
+  const [matchMode, setMatchMode] = useState<"Solo" | "Free For All" | "Team Match">("Team Match");
   
   // Selections
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
@@ -36,21 +43,64 @@ export default function RecordMatchPage() {
   const [activeGameIndex, setActiveGameIndex] = useState(0);
   const [gameScores, setGameScores] = useState<Record<string, Record<string, number>>>({});
 
+  // Inline Add Game Modal
+  const [isGameDialogOpen, setIsGameDialogOpen] = useState(false);
+  const [newGameName, setNewGameName] = useState("");
+  const [newGameIcon, setNewGameIcon] = useState("🎮");
+
+  // Track if initial draft restoration has finished
+  const [isDraftRestored, setIsDraftRestored] = useState(false);
+
+  // Subscribe to dataService updates
   useEffect(() => {
-    setPlayers(dataService.getPlayers());
-    setGames(dataService.getGames());
-    setTeams(dataService.getTeams());
+    const loadMatchData = () => {
+      setPlayers(dataService.getPlayers());
+      setGames(dataService.getGames());
+      setTeams(dataService.getTeams());
+    };
+    loadMatchData();
+    const unsubscribe = dataService.subscribe(loadMatchData);
+    return unsubscribe;
   }, []);
 
-  const toggleGameSelection = (game: ClientGame) => {
-    setSelectedGames((prev) => {
-      const isAlreadySelected = prev.some((g) => g._id === game._id);
-      if (isAlreadySelected) {
-        return prev.filter((g) => g._id !== game._id);
+  // Restore Draft Match Session on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem("scoresquad_quickmatch_draft");
+    if (savedDraft) {
+      try {
+        const draft = JSON.parse(savedDraft);
+        if (draft.matchMode) setMatchMode(draft.matchMode);
+        if (draft.selectedPlayerIds) setSelectedPlayerIds(draft.selectedPlayerIds);
+        if (draft.selectedTeamIds) setSelectedTeamIds(draft.selectedTeamIds);
+        if (draft.gameScores) setGameScores(draft.gameScores);
+        if (draft.activeGameIndex !== undefined) setActiveGameIndex(draft.activeGameIndex);
+        if (draft.step) setStep(draft.step);
+        showToast("Resumed draft match session!", "info");
+      } catch (e) {
+        console.error("Failed to parse quick match draft", e);
       }
-      return [...prev, game];
-    });
-  };
+    }
+    setIsDraftRestored(true);
+  }, []);
+
+  // Save draft match state to localStorage whenever it changes (after initial restore)
+  useEffect(() => {
+    if (!isDraftRestored) return;
+
+    if (step > 1 || selectedPlayerIds.length > 0 || selectedTeamIds.length > 0) {
+      const draftData = {
+        matchMode,
+        selectedPlayerIds,
+        selectedTeamIds,
+        gameScores,
+        activeGameIndex,
+        step,
+      };
+      localStorage.setItem("scoresquad_quickmatch_draft", JSON.stringify(draftData));
+    } else {
+      localStorage.removeItem("scoresquad_quickmatch_draft");
+    }
+  }, [matchMode, selectedPlayerIds, selectedTeamIds, gameScores, activeGameIndex, step, isDraftRestored]);
 
   const handleModeChange = (mode: "Solo" | "Free For All" | "Team Match") => {
     setMatchMode(mode);
@@ -121,24 +171,28 @@ export default function RecordMatchPage() {
       }
     }
 
-    // Initialize scores map for each selected game
-    const initialGameScores: Record<string, Record<string, number>> = {};
-    selectedGames.forEach((game) => {
-      const scoresMap: Record<string, number> = {};
-      if (matchMode === "Team Match") {
-        scoresMap[selectedTeamIds[0]] = 0;
-        scoresMap[selectedTeamIds[1]] = 0;
-      } else {
-        selectedPlayerIds.forEach((pId) => {
-          scoresMap[pId] = 0;
-        });
-      }
-      initialGameScores[game._id] = scoresMap;
+    // Initialize scores map for each catalog game if not already present
+    setGameScores((prev) => {
+      const initialGameScores = { ...prev };
+      games.forEach((game) => {
+        if (!initialGameScores[game._id]) {
+          const scoresMap: Record<string, number> = {};
+          if (matchMode === "Team Match") {
+            scoresMap[selectedTeamIds[0]] = 0;
+            scoresMap[selectedTeamIds[1]] = 0;
+          } else {
+            selectedPlayerIds.forEach((pId) => {
+              scoresMap[pId] = 0;
+            });
+          }
+          initialGameScores[game._id] = scoresMap;
+        }
+      });
+      return initialGameScores;
     });
 
-    setGameScores(initialGameScores);
     setActiveGameIndex(0);
-    setStep(3);
+    setStep(2);
   };
 
   const adjustScore = (gameId: string, competitorId: string, amount: number) => {
@@ -173,20 +227,30 @@ export default function RecordMatchPage() {
   };
 
   const handleSaveMatch = async () => {
-    if (selectedGames.length === 0) return;
+    if (games.length === 0) return;
 
-    const matchesToSave = selectedGames.map((game) => {
-      const scoreMap = gameScores[game._id] || {};
-      const winners = getWinnerIds(scoreMap);
-      const hasZeroScores = Object.values(scoreMap).every((value) => value === 0) && Object.keys(scoreMap).length > 0;
+    // Filter games to save matches only for:
+    // 1. The currently selected active game
+    // 2. Any other games that have non-zero scores (entered by the user)
+    const matchesToSave = games
+      .map((game, index) => {
+        const scoreMap = gameScores[game._id] || {};
+        const winners = getWinnerIds(scoreMap);
+        const hasZeroScores = Object.values(scoreMap).every((value) => value === 0) && Object.keys(scoreMap).length > 0;
+        const hasSomePoints = Object.values(scoreMap).some((value) => value > 0);
 
-      return {
-        game,
-        scoreMap,
-        winners,
-        hasZeroScores,
-      };
-    });
+        return {
+          game,
+          scoreMap,
+          winners,
+          hasZeroScores,
+          hasSomePoints,
+          isCurrentActive: index === activeGameIndex,
+        };
+      })
+      .filter((match) => match.isCurrentActive || match.hasSomePoints);
+
+    if (matchesToSave.length === 0) return;
 
     const shouldConfirmZeroScores = matchesToSave.some((match) => match.hasZeroScores);
 
@@ -228,10 +292,71 @@ export default function RecordMatchPage() {
       
       await Promise.all(savePromises);
 
+      // Clean up localStorage draft
+      localStorage.removeItem("scoresquad_quickmatch_draft");
+
       showToast(`Recorded ${matchesToSave.length} match${matchesToSave.length === 1 ? "" : "es"} successfully!`, "success");
       router.push("/stats?tab=history");
     } catch (err) {
       showToast("Failed to save match data", "error");
+    }
+  };
+
+  const handleAddCustomGameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGameName.trim()) {
+      showToast("Game name is required", "error");
+      return;
+    }
+
+    const isDuplicate = games.some(
+      (g) => g.name.toLowerCase() === newGameName.trim().toLowerCase()
+    );
+
+    if (isDuplicate) {
+      showToast("Game with this name already exists", "error");
+      return;
+    }
+
+    try {
+      const addedGame = await dataService.saveGame({
+        name: newGameName.trim(),
+        icon: newGameIcon,
+      });
+      showToast(`Game ${addedGame.name} added and selected!`, "success");
+      
+      setNewGameName("");
+      setNewGameIcon("🎮");
+      setIsGameDialogOpen(false);
+
+      // Refresh games
+      const updatedGames = dataService.getGames();
+      setGames(updatedGames);
+
+      // Initialize scores map for the new game
+      setGameScores((prev) => {
+        const scoresMap: Record<string, number> = {};
+        if (matchMode === "Team Match") {
+          if (selectedTeamIds[0]) scoresMap[selectedTeamIds[0]] = 0;
+          if (selectedTeamIds[1]) scoresMap[selectedTeamIds[1]] = 0;
+        } else {
+          selectedPlayerIds.forEach((pId) => {
+            scoresMap[pId] = 0;
+          });
+        }
+        return {
+          ...prev,
+          [addedGame._id]: scoresMap,
+        };
+      });
+
+      // Select newly added game
+      const newIdx = updatedGames.findIndex((g) => g._id === addedGame._id);
+      if (newIdx !== -1) {
+        setActiveGameIndex(newIdx);
+      }
+    } catch (err: any) {
+      showToast(err.message || "Failed to add game", "error");
     }
   };
 
@@ -260,6 +385,18 @@ export default function RecordMatchPage() {
     }
   };
 
+  // If there are absolutely no games in the catalog, prompt the user to add one first.
+  if (dataService.isLoaded && games.length === 0) {
+    return (
+      <div className="flex flex-col gap-6 max-w-[600px] mx-auto py-8">
+        <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50">
+          <p className="mb-4 text-[14px]">No games in your catalog yet. You need at least one game to record scores.</p>
+          <Button onClick={() => router.push("/players")}>Manage Game Catalog</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 max-w-[600px] mx-auto">
       {/* Wizard Header breadcrumbs */}
@@ -276,17 +413,16 @@ export default function RecordMatchPage() {
         </button>
         <div className="flex-grow min-w-0">
           <span className="mono-label text-text-faint block text-[10px]">
-            STEP {step} OF 3
+            STEP {step} OF 2
           </span>
           <h1 className="font-display font-bold text-[16px] text-text truncate mt-0.5">
-            {step === 1 && "Pick your games"}
-            {step === 2 && "Choose participants"}
-            {step === 3 && "Scoring console"}
+            {step === 1 && "Choose participants"}
+            {step === 2 && "Scoring console"}
           </h1>
         </div>
         {/* Progress dots */}
         <div className="flex gap-1.5">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div
               key={s}
               className={`h-2 rounded-full transition-all ${
@@ -297,39 +433,8 @@ export default function RecordMatchPage() {
         </div>
       </div>
 
-      {/* Step 1: Game Catalog Selector */}
+      {/* Step 1: Choose Participants */}
       {step === 1 && (
-        <div className="flex flex-col gap-4 fade-in">
-          <p className="text-text-dim text-[13px] leading-relaxed">
-            Tap to select one or more games for this match. Selected games play back-to-back in one round.
-          </p>
-          
-          <GameSelectGrid
-            games={games}
-            selectedGames={selectedGames}
-            onToggle={toggleGameSelection}
-          />
-
-          {games.length === 0 && (
-            <div className="p-8 text-center text-text-dim border border-dashed border-border rounded-xl bg-surface/50">
-              <p className="mb-3 text-[13.5px]">No games in your catalog yet.</p>
-              <Button onClick={() => router.push("/players")}>Manage Game Catalog</Button>
-            </div>
-          )}
-
-          {selectedGames.length > 0 && (
-            <Button
-              onClick={() => setStep(2)}
-              className="w-full py-6 bg-primary text-white hover:bg-primary-hover font-bold text-[14px] mt-4 flex items-center justify-center gap-1.5"
-            >
-              Continue <ChevronRight className="h-4.5 w-4.5 stroke-[2]" />
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Step 2: Choose Participants */}
-      {step === 2 && (
         <div className="flex flex-col gap-4 fade-in">
           <TeamPairSelector
             players={players}
@@ -357,29 +462,71 @@ export default function RecordMatchPage() {
         </div>
       )}
 
-      {/* Step 3: Scoring Console */}
-      {step === 3 && selectedGames.length > 0 && (
+      {/* Step 2: Scoring Console */}
+      {step === 2 && games.length > 0 && (
         <div className="fade-in">
           <ScoreConsole
-            games={selectedGames}
+            games={games}
             activeGameIndex={activeGameIndex}
             onGameIndexChange={setActiveGameIndex}
             competitors={getConsoleCompetitors()}
-            scores={gameScores[selectedGames[activeGameIndex]._id] || {}}
-            onScoreAdjust={(compId, amount) => adjustScore(selectedGames[activeGameIndex]._id, compId, amount)}
-            onSave={
-              activeGameIndex < selectedGames.length - 1
-                ? () => setActiveGameIndex(activeGameIndex + 1)
-                : handleSaveMatch
-            }
-            saveButtonText={
-              activeGameIndex < selectedGames.length - 1
-                ? "Save game & next"
-                : "Save & finish round"
-            }
+            scores={gameScores[games[activeGameIndex]._id] || {}}
+            onScoreAdjust={(compId, amount) => adjustScore(games[activeGameIndex]._id, compId, amount)}
+            onSave={handleSaveMatch}
+            saveButtonText="Save & finish round"
+            onAddGame={() => setIsGameDialogOpen(true)}
           />
         </div>
       )}
+
+      {/* Inline Custom Game Modal */}
+      <Dialog open={isGameDialogOpen} onOpenChange={setIsGameDialogOpen}>
+        <DialogContent className="bg-surface border-border sm:max-w-[420px] rounded-xl p-6">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="font-display font-bold text-[18px] text-text">
+              Add Custom Game
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleAddCustomGameSubmit} className="flex flex-col gap-4">
+            <div>
+              <span className="mono-label text-text-dim block mb-1">Game Name</span>
+              <input
+                type="text"
+                placeholder="e.g. Table Tennis"
+                value={newGameName}
+                onChange={(e) => setNewGameName(e.target.value)}
+                className="w-full h-11 bg-surface-2 border border-border rounded-md px-3 text-[14px] text-text font-semibold outline-none focus:ring-1 focus:ring-primary"
+                maxLength={30}
+                required
+              />
+            </div>
+            <div>
+              <span className="mono-label text-text-dim block mb-1.5">Select Game Icon</span>
+              <div className="grid grid-cols-6 gap-2">
+                {GAME_EMOJIS.map((emoji) => {
+                  const IconComponent = getIcon(emoji);
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={`h-11 bg-surface-2 border border-border rounded-md flex items-center justify-center cursor-pointer transition-all hover:bg-surface-3 ${
+                        newGameIcon === emoji ? "border-primary/60 bg-[#7C6FF2]/10 text-primary" : "text-text-dim"
+                      }`}
+                      onClick={() => setNewGameIcon(emoji)}
+                    >
+                      <IconComponent className="h-[18px] w-[18px]" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Button type="submit" className="w-full mt-2 py-6 bg-primary text-white hover:bg-primary-hover font-bold">
+              Add Game to Console
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

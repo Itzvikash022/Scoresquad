@@ -22,7 +22,7 @@ function StatisticsContent() {
   const initialTab = searchParams.get("tab") || "leaderboard";
   
   const [activeTab, setActiveTab] = useState<"leaderboard" | "history" | "gameAnalytics" | "analytics">("leaderboard");
-  const [leaderboardType, setLeaderboardType] = useState<"solo" | "team">("solo");
+  const [leaderboardType, setLeaderboardType] = useState<"solo" | "team">("team");
   
   const [historyModalEntity, setHistoryModalEntity] = useState<{ id: string, name: string, isTeam: boolean } | null>(null);
 

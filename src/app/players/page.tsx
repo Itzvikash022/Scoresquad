@@ -79,6 +79,8 @@ export default function ManagementPage() {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = dataService.subscribe(loadData);
+    return unsubscribe;
   }, []);
 
   const loadData = () => {
@@ -169,6 +171,13 @@ export default function ManagementPage() {
     setPinError(false);
   };
 
+  const openRenameModalDirectly = (player: ClientPlayer, trollMode: boolean) => {
+    setRenamePlayer(player);
+    setIsTrollMode(trollMode);
+    setRenameValue(player.name);
+    setRenameState("idle");
+  };
+
   const cancelHold = () => {
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
@@ -188,6 +197,7 @@ export default function ManagementPage() {
       setPinModalPlayer(null);
       setRenamePlayer(pinModalPlayer);
       setRenameValue(pinModalPlayer.name);
+      setRenameState("idle");
     } else {
       setPinError(true);
       setPinValue("");
@@ -214,7 +224,10 @@ export default function ManagementPage() {
         count++;
         if (count >= 3) {
           clearInterval(interval);
-          completeSave(newName, true);
+          setRenamePlayer(null);
+          setRenameValue("");
+          setRenameState("idle");
+          setShowDogGif(true);
         } else {
           setRenameLoadingText(SARCASTIC_TEXTS[Math.floor(Math.random() * SARCASTIC_TEXTS.length)]);
         }
@@ -476,7 +489,7 @@ export default function ManagementPage() {
                   <div className="flex gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); openPinModal(p, true); }}
+                      onClick={(e) => { e.stopPropagation(); openRenameModalDirectly(p, true); }}
                       className="w-9 h-9 border border-border/80 bg-surface-2 rounded-lg text-text-dim hover:text-text transition-all cursor-pointer flex items-center justify-center focus:outline-none"
                       title="Edit Player"
                     >
