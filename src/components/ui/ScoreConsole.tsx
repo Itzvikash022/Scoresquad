@@ -1,17 +1,10 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Check, Minus, Plus } from "lucide-react";
+import { Check, Minus, Plus, Search, ChevronDown } from "lucide-react";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { Button } from "@/components/ui/button";
 import { getGameIcon as getIcon } from "@/lib/iconMap";
 import { ClientGame } from "@/lib/dataService";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface Competitor {
   id: string;
@@ -30,6 +23,7 @@ interface ScoreConsoleProps {
   onSave: () => void;
   saveButtonText?: string;
   onAddGame?: () => void;
+  hideGameDropdown?: boolean;
 }
 
 export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
@@ -43,16 +37,36 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
   onSave,
   saveButtonText = "Save game & next",
   onAddGame,
+  hideGameDropdown = false,
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const activeGame = games[activeGameIndex];
 
-  const handlePrevGame = () => {
-    onGameIndexChange((activeGameIndex - 1 + games.length) % games.length);
-  };
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const handleNextGame = () => {
-    onGameIndexChange((activeGameIndex + 1) % games.length);
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const filteredGames = games.filter((g) =>
+    g.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleSelectGame = (gameId: string) => {
+    const idx = games.findIndex((g) => g._id === gameId);
+    if (idx !== -1) {
+      onGameIndexChange(idx);
+    }
+    setIsOpen(false);
+    setSearchQuery("");
   };
 
   const IconComponent = activeGame ? getIcon(activeGame.icon) : null;
@@ -87,61 +101,87 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
     <div className="flex flex-col gap-4">
       {/* 1. Game Switcher Header */}
       {games.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrevGame}
-              className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
-              aria-label="Previous game"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-
-            <div className="flex-grow min-w-0">
-              <Select value={String(activeGameIndex)} onValueChange={(val) => onGameIndexChange(Number(val))}>
-                <SelectTrigger className="w-full h-11 bg-surface-2 border border-border rounded-xl px-3.5 font-bold text-[14px] text-text flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2 truncate">
-                    {IconComponent && <IconComponent className="h-4.5 w-4.5 text-primary shrink-0" />}
-                    <span className="truncate">{activeGame?.name || "Select game"}</span>
-                  </div>
-                </SelectTrigger>
-                <SelectContent className="bg-surface border-border max-h-[300px]">
-                  {games.map((g, idx) => {
-                    const GameIcon = getIcon(g.icon);
-                    return (
-                      <SelectItem key={g._id} value={String(idx)}>
-                        <span className="flex items-center gap-2 font-semibold text-[13.5px]">
-                          {GameIcon && <GameIcon className="h-4 w-4 text-primary shrink-0" />}
-                          {g.name}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+        <div className="flex items-center gap-2">
+          {hideGameDropdown ? (
+            /* Static Display (Pre-selected mode) */
+            <div className="w-full h-11 bg-surface-2 border border-border rounded-xl px-3.5 font-bold text-[14px] text-text flex items-center gap-2.5">
+              {IconComponent && <IconComponent className="h-4.5 w-4.5 text-primary shrink-0" />}
+              <span className="truncate">{activeGame?.name || "Game"}</span>
             </div>
-
-            {onAddGame && (
+          ) : (
+            /* Custom Search Dropdown */
+            <div ref={dropdownRef} className="relative flex-grow min-w-0">
               <button
                 type="button"
-                onClick={onAddGame}
-                className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
-                title="Add Custom Game"
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full h-11 bg-surface-2 border border-border rounded-xl px-3.5 font-bold text-[14px] text-text flex items-center justify-between gap-2.5 hover:bg-surface-3 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                <Plus className="h-5 w-5" />
+                <div className="flex items-center gap-2 truncate">
+                  {IconComponent && <IconComponent className="h-4.5 w-4.5 text-primary shrink-0" />}
+                  <span className="truncate">{activeGame?.name || "Select game"}</span>
+                </div>
+                <ChevronDown className={`h-4.5 w-4.5 text-text-dim transition-transform duration-200 shrink-0 ${isOpen ? "rotate-180" : ""}`} />
               </button>
-            )}
 
+              {isOpen && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1.5 bg-surface border border-border rounded-xl shadow-2xl p-2 flex flex-col gap-2 max-h-[300px]">
+                  {/* Search Input */}
+                  <div className="flex items-center gap-2 bg-surface-2 border border-border rounded-lg px-2.5 h-9 shrink-0">
+                    <Search className="h-4 w-4 text-text-dim shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search games..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      autoFocus
+                      className="w-full bg-transparent text-[13px] text-text outline-none"
+                    />
+                  </div>
+
+                  {/* Games List */}
+                  <div className="flex-grow overflow-y-auto flex flex-col gap-0.5 pr-0.5 custom-scrollbar">
+                    {filteredGames.length > 0 ? (
+                      filteredGames.map((g) => {
+                        const GameIcon = getIcon(g.icon);
+                        const isSelected = g._id === activeGame?._id;
+                        return (
+                          <button
+                            key={g._id}
+                            type="button"
+                            onClick={() => handleSelectGame(g._id)}
+                            className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-[13px] font-semibold transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-primary text-white"
+                                : "text-text hover:bg-surface-2"
+                            }`}
+                          >
+                            {GameIcon && <GameIcon className={`h-4 w-4 shrink-0 ${isSelected ? "text-white" : "text-primary"}`} />}
+                            <span className="truncate flex-grow">{g.name}</span>
+                            {isSelected && <Check className="h-4 w-4 text-white shrink-0" />}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="p-3 text-center text-text-dim text-[12.5px] italic">
+                        No games found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!hideGameDropdown && onAddGame && (
             <button
               type="button"
-              onClick={handleNextGame}
+              onClick={onAddGame}
               className="w-11 h-11 rounded-xl bg-surface-2 border border-border flex items-center justify-center text-text-dim hover:text-text cursor-pointer shrink-0 focus:outline-none focus:ring-2 focus:ring-primary"
-              aria-label="Next game"
+              title="Add Custom Game"
             >
-              <ChevronRight className="h-5 w-5" />
+              <Plus className="h-5 w-5" />
             </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -255,13 +295,13 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
                 </div>
 
                 {/* Score adjusting buttons for FFA */}
-                <div className="flex gap-2 w-full mt-1">
+                <div className="flex gap-1.5 w-full mt-1">
                   <Button
                     type="button"
                     variant="outline"
                     size="xs"
                     onClick={() => onScoreAdjust(comp.id, -1)}
-                    className="flex-1 border-border bg-surface-2 hover:bg-surface-3 py-4"
+                    className="flex-1 border-border bg-surface-2 hover:bg-surface-3 py-4 text-[12px]"
                   >
                     -1
                   </Button>
@@ -270,7 +310,7 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
                     variant="outline"
                     size="xs"
                     onClick={() => onScoreAdjust(comp.id, 1)}
-                    className="flex-grow-[2] bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 py-4 font-bold"
+                    className="flex-1 bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 py-4 font-bold text-[12px]"
                   >
                     +1
                   </Button>
@@ -278,10 +318,19 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
                     type="button"
                     variant="outline"
                     size="xs"
-                    onClick={() => onScoreAdjust(comp.id, 5)}
-                    className="flex-1 border-border bg-surface-2 hover:bg-surface-3 py-4"
+                    onClick={() => onScoreAdjust(comp.id, 2)}
+                    className="flex-1 border-border bg-surface-2 hover:bg-surface-3 py-4 text-[12px]"
                   >
-                    +5
+                    +2
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onScoreAdjust(comp.id, 3)}
+                    className="flex-1 border-border bg-surface-2 hover:bg-surface-3 py-4 text-[12px]"
+                  >
+                    +3
                   </Button>
                 </div>
               </div>
@@ -306,17 +355,17 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={() => onScoreAdjust(compA!.id, 2)}
+                className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
+              >
+                +2
+              </button>
+              <button
+                type="button"
                 onClick={() => onScoreAdjust(compA!.id, 3)}
                 className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
               >
                 +3
-              </button>
-              <button
-                type="button"
-                onClick={() => onScoreAdjust(compA!.id, 5)}
-                className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
-              >
-                +5
               </button>
               <button
                 type="button"
@@ -342,17 +391,17 @@ export const ScoreConsole: React.FC<ScoreConsoleProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={() => onScoreAdjust(compB!.id, 2)}
+                className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
+              >
+                +2
+              </button>
+              <button
+                type="button"
                 onClick={() => onScoreAdjust(compB!.id, 3)}
                 className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
               >
                 +3
-              </button>
-              <button
-                type="button"
-                onClick={() => onScoreAdjust(compB!.id, 5)}
-                className="bg-surface-2 border border-border text-text-dim rounded-full text-[11px] font-semibold font-mono w-9 h-7 flex items-center justify-center hover:bg-surface-3 cursor-pointer"
-              >
-                +5
               </button>
               <button
                 type="button"

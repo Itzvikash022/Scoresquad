@@ -48,6 +48,9 @@ export interface ClientMatch {
   winners: string[]; // Winner IDs (players or teams)
   isTournamentMatch: boolean;
   tournament?: string; // Tournament ID
+  isDraft?: boolean;
+  targetGamesCount?: number;
+  preSelectGames?: boolean;
 }
 
 export interface ClientTournament {
@@ -342,7 +345,9 @@ class DataService {
     const players = this.memoryCache.players;
     const games = this.memoryCache.games;
     const teams = this.memoryCache.teams;
-    const matches = [...this.memoryCache.matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const matches = [...this.memoryCache.matches]
+      .filter((m) => !m.isDraft)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     players.forEach((p) => { p.totalPoints = 0; p.matches = 0; p.wins = 0; p.losses = 0; p.winRate = 0; p.recentForm = []; });
     teams.forEach((t) => { t.games = 0; t.wins = 0; t.points = 0; t.winRate = 0; t.recentForm = []; });

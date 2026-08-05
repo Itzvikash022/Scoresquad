@@ -61,6 +61,7 @@ function StatisticsContent() {
 
   // Filter History
   const filteredMatches = matches.filter((m) => {
+    if (m.isDraft) return false;
     const matchesGame = selectedGameFilter ? m.game === selectedGameFilter : true;
     
     // Check if player filter is in player list or team members

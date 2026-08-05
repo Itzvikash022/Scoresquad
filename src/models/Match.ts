@@ -12,6 +12,9 @@ export interface IMatch {
   winners: string[]; // List of winner IDs (player or team IDs)
   isTournamentMatch: boolean;
   tournament?: string; // Reference to Tournament ID
+  isDraft?: boolean;
+  targetGamesCount?: number;
+  preSelectGames?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +43,9 @@ const MatchSchema: Schema<IMatch> = new Schema(
     },
     isTournamentMatch: { type: Boolean, default: false },
     tournament: { type: String, ref: "Tournament" },
+    isDraft: { type: Boolean, default: false },
+    targetGamesCount: { type: Number },
+    preSelectGames: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
