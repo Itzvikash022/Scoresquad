@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Check, Plus, Users, Shield, User, X } from "lucide-react";
+import { Check, Plus, Shuffle, Users, Shield, User, X } from "lucide-react";
 import { PlayerAvatar } from "@/components/ui/PlayerAvatar";
 import { Button } from "@/components/ui/button";
 import { ClientPlayer, ClientTeam } from "@/lib/dataService";
@@ -28,7 +28,6 @@ interface TeamPairSelectorProps {
   onPlayerToggle: (pId: string) => void;
   onTeamToggle: (tId: string) => void;
   onCreateTeamPair: (p1Id: string, p2Id: string) => void;
-  onSelectRandomTeamPairs?: (teamIds: string[]) => void;
   hideModeSwitcher?: boolean;
 }
 
@@ -42,7 +41,6 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
   onPlayerToggle,
   onTeamToggle,
   onCreateTeamPair,
-  onSelectRandomTeamPairs,
   hideModeSwitcher = false,
 }) => {
   // Modal creation state
@@ -70,18 +68,15 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
   // Filter out teams that don't have exactly 2 members to keep them as "pairs"
   const teamPairs = teams.filter((t) => t.members && t.members.length === 2);
 
-  const pickRandomTeamPairIds = () => {
-    if (teamPairs.length < 2) return [];
-    const shuffled = [...teamPairs].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, 2).map((team) => team._id);
-  };
+  const handleRandomizePlayers = () => {
+    if (players.length < 2) return;
 
-  const handleRandomTeamPairs = () => {
-    if (!onSelectRandomTeamPairs) return;
-    const randomIds = pickRandomTeamPairIds();
-    if (randomIds.length === 2) {
-      onSelectRandomTeamPairs(randomIds);
-    }
+    const shuffled = [...players].sort(() => 0.5 - Math.random());
+    const [firstPlayer, secondPlayer] = shuffled;
+
+    setPlayer1Id(firstPlayer._id);
+    setPlayer2Id(secondPlayer._id);
+    setErrorMsg("");
   };
 
   return (
@@ -181,19 +176,7 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
       ) : (
         /* TEAM MODE: Team Pairs */
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="mono-label text-text-faint">Saved Combos</span>
-            {onSelectRandomTeamPairs && (
-              <button
-                type="button"
-                disabled={teamPairs.length < 2}
-                onClick={handleRandomTeamPairs}
-                className="text-[12px] font-bold text-primary hover:text-primary-hover transition-all disabled:text-text-dim disabled:cursor-not-allowed"
-              >
-                🎲 Random pairs
-              </button>
-            )}
-          </div>
+          <span className="mono-label text-text-faint">Saved Combos</span>
           
           <div className="flex flex-col gap-2">
             {teamPairs.map((t) => {
@@ -273,6 +256,16 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
               )}
 
               <div className="flex flex-col gap-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleRandomizePlayers}
+                  disabled={players.length < 2}
+                  className="w-full border-dashed border-primary/40 text-primary hover:bg-primary/10 hover:border-primary/70"
+                >
+                  <Shuffle className="mr-2 h-4 w-4" /> Randomize pair
+                </Button>
+
                 <div>
                   <span className="mono-label text-text-dim block mb-1">
                     Player 1
