@@ -28,6 +28,7 @@ interface TeamPairSelectorProps {
   onPlayerToggle: (pId: string) => void;
   onTeamToggle: (tId: string) => void;
   onCreateTeamPair: (p1Id: string, p2Id: string) => void;
+  onSelectRandomTeamPairs?: (teamIds: string[]) => void;
   hideModeSwitcher?: boolean;
 }
 
@@ -41,6 +42,7 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
   onPlayerToggle,
   onTeamToggle,
   onCreateTeamPair,
+  onSelectRandomTeamPairs,
   hideModeSwitcher = false,
 }) => {
   // Modal creation state
@@ -67,6 +69,20 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
 
   // Filter out teams that don't have exactly 2 members to keep them as "pairs"
   const teamPairs = teams.filter((t) => t.members && t.members.length === 2);
+
+  const pickRandomTeamPairIds = () => {
+    if (teamPairs.length < 2) return [];
+    const shuffled = [...teamPairs].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 2).map((team) => team._id);
+  };
+
+  const handleRandomTeamPairs = () => {
+    if (!onSelectRandomTeamPairs) return;
+    const randomIds = pickRandomTeamPairIds();
+    if (randomIds.length === 2) {
+      onSelectRandomTeamPairs(randomIds);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -165,7 +181,19 @@ export const TeamPairSelector: React.FC<TeamPairSelectorProps> = ({
       ) : (
         /* TEAM MODE: Team Pairs */
         <div className="flex flex-col gap-3">
-          <span className="mono-label text-text-faint">Saved Combos</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="mono-label text-text-faint">Saved Combos</span>
+            {onSelectRandomTeamPairs && (
+              <button
+                type="button"
+                disabled={teamPairs.length < 2}
+                onClick={handleRandomTeamPairs}
+                className="text-[12px] font-bold text-primary hover:text-primary-hover transition-all disabled:text-text-dim disabled:cursor-not-allowed"
+              >
+                🎲 Random pairs
+              </button>
+            )}
+          </div>
           
           <div className="flex flex-col gap-2">
             {teamPairs.map((t) => {

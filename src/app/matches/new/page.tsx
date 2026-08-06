@@ -717,6 +717,7 @@ export default function RecordMatchPage() {
             onPlayerToggle={handlePlayerToggle}
             onTeamToggle={handleTeamToggle}
             onCreateTeamPair={handleCreateTeamPair}
+            onSelectRandomTeamPairs={setSelectedTeamIds}
           />
 
           <Button
